@@ -1,0 +1,18 @@
+{{ business }} — Confirmación de pedido
+Pedido #{{ order.number }}
+Fecha: {{ order.created_at|date:"d/m/Y H:i" }}
+Estado: {{ order.get_status_display }}
+
+Productos:
+{% for item in items %}- {{ item.quantity }} x {{ item.description }} ({{ item.sku }}) = ${{ item.line_total|floatformat:0 }}
+{% endfor %}
+Subtotal: ${{ order.subtotal|floatformat:0 }}
+IVA: ${{ order.tax_total|floatformat:0 }}
+Total: ${{ order.total|floatformat:0 }}
+
+Entrega: {{ order.get_fulfillment_display }}
+{% if order.fulfillment == 'envio' %}Enviar a: {{ order.ship_recipient }}, {{ order.ship_line1 }}{% if order.ship_city %}, {{ order.ship_city }}{% endif %}{% if order.ship_department %}, {{ order.ship_department }}{% endif %}{% if order.ship_country %}, {{ order.ship_country }}{% endif %}{% if order.ship_phone %} (Tel: {{ order.ship_phone }}{% if order.ship_phone_alt %} / {{ order.ship_phone_alt }}{% endif %}){% endif %}
+{% else %}Recoge en: {{ order.warehouse.name }}{% if order.warehouse.address %} ({{ order.warehouse.address }}){% endif %}
+{% endif %}Pago: {{ order.get_payment_method_display }}{% if order.is_paid %} (pagado){% else %} (pendiente){% endif %}
+
+¡Gracias por tu compra! Te avisaremos cuando tu pedido avance.

@@ -1,0 +1,9 @@
+{{ title }}
+
+{{ intro }}
+
+{{ button_label }}: {{ link }}
+
+{{ footer }}
+
+— Stockly

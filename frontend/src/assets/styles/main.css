@@ -1,0 +1,550 @@
+/* ===========================================================
+   Stockly — Design System
+   =========================================================== */
+
+:root {
+  /* Brand — Esmeralda + crema */
+  --color-primary: #0e6e4e;
+  --color-primary-dark: #0a5640;
+  --color-primary-light: #16855f;
+  --color-primary-soft: #e7f1ea;
+
+  /* Accent — oro suave */
+  --color-accent: #b8923a;
+  --color-accent-dark: #9a7a2e;
+  --color-accent-soft: #f4ebd6;
+
+  /* Neutrals — cálidos */
+  --color-ink: #14201a;
+  --color-body: #46524b;
+  --color-muted: #828d85;
+  --color-line: #e8e2d7;
+  --color-surface: #ffffff;
+  --color-surface-alt: #faf7f0;
+  --color-surface-dark: #0e1a14;
+
+  /* Estados */
+  --color-success: #0e6e4e;
+  --color-amber: #b8923a;
+
+  /* Typography */
+  --font-sans:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+
+  /* Radii — sobrio, look editorial */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 999px;
+
+  /* Shadows — cálidas y suaves */
+  --shadow-sm: 0 1px 2px rgba(20, 32, 25, 0.05);
+  --shadow-md: 0 10px 30px rgba(20, 32, 25, 0.07);
+  --shadow-lg: 0 30px 60px rgba(20, 32, 25, 0.1);
+  --shadow-primary: 0 14px 34px rgba(14, 110, 78, 0.24);
+
+  /* Layout */
+  --container: 1200px;
+  --header-height: 78px;
+}
+
+/* ----------------------------- Reset ----------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-body);
+  background: var(--color-surface);
+  line-height: 1.6;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+ul {
+  list-style: none;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: var(--color-ink);
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Titulares editoriales (serif premium). Se aplica donde se quiera el acento
+   de marca; el dashboard sigue usando la tipografía sans por defecto. */
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+::selection {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* ----------------------------- Layout ----------------------------- */
+.container {
+  width: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.section {
+  padding: 96px 0;
+}
+
+.section--tight {
+  padding: 72px 0;
+}
+
+.section--alt {
+  background: var(--color-surface-alt);
+}
+
+.section-head {
+  max-width: 680px;
+  margin: 0 auto 56px;
+  text-align: center;
+}
+
+.section-head--left {
+  margin-left: 0;
+  text-align: left;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-accent-dark);
+  margin-bottom: 18px;
+}
+
+.eyebrow::before {
+  content: '';
+  width: 22px;
+  height: 1px;
+  background: var(--color-accent);
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  letter-spacing: -0.015em;
+  margin-bottom: 16px;
+}
+
+.section-subtitle {
+  font-size: 1.075rem;
+  color: var(--color-muted);
+}
+
+/* ----------------------------- Buttons ----------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.005em;
+  padding: 13px 26px;
+  border-radius: var(--radius-full);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.22s ease,
+    background 0.22s ease,
+    color 0.22s ease,
+    border-color 0.22s ease;
+  white-space: nowrap;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn--primary {
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: var(--shadow-primary);
+}
+
+.btn--primary:hover {
+  background: var(--color-primary-dark);
+  transform: translateY(-2px);
+}
+
+.btn--accent {
+  background: var(--color-accent);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(184, 146, 58, 0.26);
+}
+
+.btn--accent:hover {
+  background: var(--color-accent-dark);
+  transform: translateY(-2px);
+}
+
+.btn--dark {
+  background: var(--color-ink);
+  color: #fff;
+}
+
+.btn--dark:hover {
+  background: #233429;
+  transform: translateY(-2px);
+}
+
+.btn--ghost {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn--ghost:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.btn--light {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(4px);
+}
+
+.btn--light:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.btn--outline-light {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.btn--outline-light:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: #fff;
+}
+
+.btn--block {
+  width: 100%;
+}
+
+.btn--lg {
+  padding: 16px 30px;
+  font-size: 1.05rem;
+}
+
+.btn--sm {
+  padding: 8px 14px;
+  font-size: 0.875rem;
+}
+
+.btn--danger {
+  background: var(--color-surface);
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn--danger:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+/* Deshabilitado: sin color llamativo, indica que falta completar campos. */
+.btn:disabled,
+.btn[disabled] {
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.btn--primary:disabled,
+.btn--primary[disabled] {
+  background: var(--color-line);
+  color: var(--color-muted);
+  box-shadow: none;
+}
+.btn--primary:disabled:hover,
+.btn--primary[disabled]:hover {
+  background: var(--color-line);
+  color: var(--color-muted);
+  transform: none;
+}
+
+/* ----------------------------- Cards ----------------------------- */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ----------------------------- Utilities ----------------------------- */
+.text-center {
+  text-align: center;
+}
+
+.icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+/* ----------------------------- Auth forms ----------------------------- */
+.auth-head {
+  margin-bottom: 28px;
+}
+
+.auth-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.85rem;
+  letter-spacing: -0.015em;
+  margin-bottom: 8px;
+}
+
+.auth-subtitle {
+  color: var(--color-muted);
+  font-size: 0.98rem;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.auth-field label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.auth-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Solo el icono izquierdo (candado/sobre), no el del toggle de ver contraseña */
+.auth-input > svg:first-child {
+  position: absolute;
+  left: 14px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.auth-input input {
+  width: 100%;
+  padding: 13px 42px 13px 42px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--color-ink);
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.auth-input input::placeholder {
+  color: #94a3b8;
+}
+
+.auth-input input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.auth-input--error input {
+  border-color: #ef4444;
+}
+
+.auth-optional {
+  font-weight: 400;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.auth-input__toggle {
+  position: absolute;
+  right: 12px;
+  display: inline-flex;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.auth-input__toggle:hover {
+  color: var(--color-body);
+}
+
+.auth-error {
+  font-size: 0.82rem;
+  color: #ef4444;
+}
+
+.auth-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-forgot {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-primary);
+}
+
+.auth-forgot:hover {
+  text-decoration: underline;
+}
+
+.auth-alert__action {
+  display: block;
+  margin-top: 6px;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: underline;
+  font-size: 0.88rem;
+}
+
+.auth-alert__action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.auth-alert--success {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.auth-foot {
+  margin-top: 22px;
+  text-align: center;
+  font-size: 0.95rem;
+  color: var(--color-muted);
+}
+
+.auth-foot a {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.auth-foot a:hover {
+  text-decoration: underline;
+}
+
+.auth-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 460px) {
+  .auth-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Page enter transition */
+.fade-enter-active,
+.fade-leave-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+.fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* ----------------------------- Responsive ----------------------------- */
+@media (max-width: 768px) {
+  .section {
+    padding: 64px 0;
+  }
+  .section--tight {
+    padding: 48px 0;
+  }
+  .section-head {
+    margin-bottom: 40px;
+  }
+}

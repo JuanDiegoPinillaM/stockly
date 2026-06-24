@@ -1,0 +1,11 @@
+# Normaliza saltos de línea a LF en el repositorio
+* text=auto eol=lf
+
+# Binarios (no normalizar)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

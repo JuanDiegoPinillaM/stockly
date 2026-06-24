@@ -1,0 +1,36 @@
+# ---- Frontend ----
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ---- Backend ----
+backend/venv/
+__pycache__/
+*.pyc
+db.sqlite3
+staticfiles/
+media/
+
+# ---- Entornos (nunca subir secretos) ----
+.env
+.env.*
+!.env.example
+
+# ---- Tests / cobertura ----
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+.vitest/
+
+# ---- Logs ----
+*.log
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

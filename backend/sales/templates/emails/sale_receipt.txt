@@ -1,0 +1,36 @@
+{{ business.name }} — RECIBO DE VENTA N.º {{ sale.number }}
+NIT {{ business.nit }}
+{{ business.address }}
+{{ business.phone }} · {{ business.email }}
+==================================================
+{% if sale.is_void %}*** VENTA ANULADA ***
+{% endif %}Fecha: {{ sale.date }}
+Punto: {{ sale.warehouse }}{% if sale.cashier %}
+Atendió: {{ sale.cashier }}{% endif %}
+
+CLIENTE:
+{% if customer %}{{ customer.name }}{% if customer.document %}
+{{ customer.document }}{% endif %}{% if customer.email %}
+{{ customer.email }}{% endif %}{% else %}Cliente de mostrador{% endif %}
+
+--------------------------------------------------
+PRODUCTOS
+--------------------------------------------------
+{% for item in items %}{{ item.quantity }} x {{ item.description }}{% if item.sku %} ({{ item.sku }}){% endif %}
+   {{ item.unit_price }} c/u{% if item.tax_rate %} · IVA {{ item.tax_rate }}%{% endif %}   =  {{ item.line_total }}
+{% endfor %}--------------------------------------------------
+Subtotal:  {{ totals.subtotal }}
+IVA:       {{ totals.tax }}
+{% if totals.has_discount %}Descuento: -{{ totals.discount }}
+{% endif %}TOTAL:     {{ totals.total }}
+--------------------------------------------------
+FORMA DE PAGO
+{% for p in payments %}{{ p.method }}: {{ p.amount }}
+{% endfor %}Pagado: {{ totals.paid }}
+Cambio: {{ totals.change }}
+{% if sale.note %}
+Nota: {{ sale.note }}
+{% endif %}
+==================================================
+¡Gracias por tu compra!
+{{ business.name }} · {{ business.email }}

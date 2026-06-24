@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8" /></head>
+<body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <div style="max-width:560px;margin:0 auto;padding:24px;">
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+      <div style="background:#4f46e5;color:#fff;padding:20px 24px;">
+        <h1 style="margin:0;font-size:18px;">{{ business }}</h1>
+        <p style="margin:4px 0 0;font-size:13px;opacity:.85;">Confirmación de pedido · Pedido #{{ order.number }}</p>
+      </div>
+
+      <div style="padding:20px 24px;font-size:14px;">
+        <p style="margin:0 0 4px;color:#64748b;">Fecha: {{ order.created_at|date:"d/m/Y H:i" }}</p>
+        <p style="margin:0 0 4px;color:#64748b;">Estado: {{ order.get_status_display }}</p>
+
+        <table style="width:100%;border-collapse:collapse;margin-top:16px;">
+          <thead>
+            <tr style="text-align:left;color:#64748b;font-size:12px;text-transform:uppercase;">
+              <th style="padding:8px 0;border-bottom:1px solid #e2e8f0;">Producto</th>
+              <th style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:center;">Cant.</th>
+              <th style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              <td style="padding:8px 0;border-bottom:1px solid #f1f5f9;">
+                {{ item.description }}<br /><span style="color:#94a3b8;font-size:12px;">{{ item.sku }}</span>
+              </td>
+              <td style="padding:8px 0;border-bottom:1px solid #f1f5f9;text-align:center;">{{ item.quantity }}</td>
+              <td style="padding:8px 0;border-bottom:1px solid #f1f5f9;text-align:right;">${{ item.line_total|floatformat:0 }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <table style="width:100%;margin-top:16px;font-size:14px;">
+          <tr><td style="padding:3px 0;color:#64748b;">Subtotal</td><td style="padding:3px 0;text-align:right;">${{ order.subtotal|floatformat:0 }}</td></tr>
+          <tr><td style="padding:3px 0;color:#64748b;">IVA</td><td style="padding:3px 0;text-align:right;">${{ order.tax_total|floatformat:0 }}</td></tr>
+          <tr><td style="padding:8px 0 0;font-weight:bold;font-size:16px;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:bold;font-size:16px;">${{ order.total|floatformat:0 }}</td></tr>
+        </table>
+
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:13px;color:#64748b;">
+          <div><strong>Entrega:</strong> {{ order.get_fulfillment_display }}</div>
+          {% if order.fulfillment == 'envio' %}
+          <div>{{ order.ship_recipient }} — {{ order.ship_line1 }}{% if order.ship_city %}, {{ order.ship_city }}{% endif %}{% if order.ship_department %}, {{ order.ship_department }}{% endif %}{% if order.ship_country %}, {{ order.ship_country }}{% endif %}</div>
+          {% if order.ship_phone %}<div>Tel: {{ order.ship_phone }}{% if order.ship_phone_alt %} · {{ order.ship_phone_alt }}{% endif %}</div>{% endif %}
+          {% else %}
+          <div>Recoge en: {{ order.warehouse.name }}{% if order.warehouse.address %} ({{ order.warehouse.address }}){% endif %}</div>
+          {% endif %}
+          <div style="margin-top:4px;"><strong>Pago:</strong> {{ order.get_payment_method_display }}{% if order.is_paid %} (pagado){% else %} (pendiente){% endif %}</div>
+        </div>
+      </div>
+
+      <div style="padding:16px 24px;background:#f8fafc;color:#94a3b8;font-size:12px;text-align:center;">
+        ¡Gracias por tu compra! Te avisaremos cuando tu pedido avance.
+      </div>
+    </div>
+  </div>
+</body>
+</html>

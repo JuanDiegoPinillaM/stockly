@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: stockly_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-stockly}
+      POSTGRES_USER: ${DB_USER:-stockly}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-stockly_dev_password}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - stockly_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-stockly} -d ${DB_NAME:-stockly}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  stockly_pgdata:

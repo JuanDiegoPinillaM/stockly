@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recibo de compra</title>
+</head>
+<body style="margin:0;padding:0;background:#eef1ee;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#14201a;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Recibo de tu compra · Venta #{{ sale.number }} — {{ totals.total }}</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1ee;padding:28px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(20,32,25,.08);">
+
+          <!-- Encabezado -->
+          <tr>
+            <td style="background:#0e6e4e;padding:26px 32px;border-bottom:3px solid #b8923a;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="vertical-align:top;">
+                    <div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-.3px;">{{ business.name }}</div>
+                    <div style="font-size:12px;color:#cfe3d9;margin-top:4px;">NIT {{ business.nit }}</div>
+                  </td>
+                  <td style="vertical-align:top;text-align:right;">
+                    <div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#9fc7b6;">Recibo de venta</div>
+                    <div style="font-size:20px;font-weight:700;color:#ffffff;margin-top:2px;">N.º {{ sale.number }}</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Datos del emisor -->
+          <tr>
+            <td style="background:#f6f4ee;padding:10px 32px;font-size:12px;color:#6b746e;border-bottom:1px solid #e8e2d7;">
+              {{ business.address }} &nbsp;·&nbsp; {{ business.phone }} &nbsp;·&nbsp; {{ business.email }}
+            </td>
+          </tr>
+
+          {% if sale.is_void %}
+          <tr>
+            <td style="padding:14px 32px 0;">
+              <div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-weight:700;text-align:center;padding:8px;border-radius:8px;letter-spacing:1px;">
+                VENTA ANULADA
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+
+          <!-- Cliente + detalles -->
+          <tr>
+            <td style="padding:24px 32px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="vertical-align:top;width:55%;">
+                    <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#9aa39c;margin-bottom:6px;">Cliente</div>
+                    {% if customer %}
+                      <div style="font-size:15px;font-weight:600;color:#14201a;">{{ customer.name }}</div>
+                      {% if customer.document %}<div style="font-size:13px;color:#6b746e;margin-top:2px;">{{ customer.document }}</div>{% endif %}
+                      {% if customer.email %}<div style="font-size:13px;color:#6b746e;">{{ customer.email }}</div>{% endif %}
+                    {% else %}
+                      <div style="font-size:15px;color:#6b746e;">Cliente de mostrador</div>
+                    {% endif %}
+                  </td>
+                  <td style="vertical-align:top;width:45%;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#46524b;">
+                      <tr><td style="padding:1px 0;color:#9aa39c;">Fecha</td><td style="padding:1px 0;text-align:right;">{{ sale.date }}</td></tr>
+                      <tr><td style="padding:1px 0;color:#9aa39c;">Punto</td><td style="padding:1px 0;text-align:right;">{{ sale.warehouse }}</td></tr>
+                      {% if sale.cashier %}<tr><td style="padding:1px 0;color:#9aa39c;">Atendió</td><td style="padding:1px 0;text-align:right;">{{ sale.cashier }}</td></tr>{% endif %}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Productos -->
+          <tr>
+            <td style="padding:14px 32px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                <thead>
+                  <tr>
+                    <th align="left" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#9aa39c;padding:8px 0;border-bottom:2px solid #e8e2d7;">Producto</th>
+                    <th align="center" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#9aa39c;padding:8px 0;border-bottom:2px solid #e8e2d7;">Cant.</th>
+                    <th align="right" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#9aa39c;padding:8px 0;border-bottom:2px solid #e8e2d7;">V. Unit.</th>
+                    <th align="right" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#9aa39c;padding:8px 0;border-bottom:2px solid #e8e2d7;">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in items %}
+                  <tr>
+                    <td style="padding:11px 0;border-bottom:1px solid #f1efe8;vertical-align:top;">
+                      <div style="font-size:14px;color:#14201a;font-weight:500;">{{ item.description }}</div>
+                      <div style="font-size:11px;color:#9aa39c;margin-top:2px;">
+                        {% if item.sku %}{{ item.sku }}{% endif %}{% if item.tax_rate %} · IVA {{ item.tax_rate }}%{% endif %}
+                      </div>
+                    </td>
+                    <td align="center" style="padding:11px 0;border-bottom:1px solid #f1efe8;font-size:14px;color:#46524b;vertical-align:top;">{{ item.quantity }}</td>
+                    <td align="right" style="padding:11px 0;border-bottom:1px solid #f1efe8;font-size:14px;color:#46524b;vertical-align:top;">{{ item.unit_price }}</td>
+                    <td align="right" style="padding:11px 0;border-bottom:1px solid #f1efe8;font-size:14px;color:#14201a;font-weight:600;vertical-align:top;">{{ item.line_total }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Totales -->
+          <tr>
+            <td style="padding:8px 32px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="width:50%;"></td>
+                  <td style="width:50%;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">
+                      <tr><td style="padding:4px 0;color:#6b746e;">Subtotal</td><td align="right" style="padding:4px 0;color:#46524b;">{{ totals.subtotal }}</td></tr>
+                      <tr><td style="padding:4px 0;color:#6b746e;">IVA</td><td align="right" style="padding:4px 0;color:#46524b;">{{ totals.tax }}</td></tr>
+                      {% if totals.has_discount %}<tr><td style="padding:4px 0;color:#6b746e;">Descuento</td><td align="right" style="padding:4px 0;color:#b91c1c;">-{{ totals.discount }}</td></tr>{% endif %}
+                      <tr>
+                        <td style="padding:10px 0 0;font-size:16px;font-weight:700;color:#14201a;border-top:2px solid #e8e2d7;">Total</td>
+                        <td align="right" style="padding:10px 0 0;font-size:18px;font-weight:700;color:#0e6e4e;border-top:2px solid #e8e2d7;">{{ totals.total }}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Pagos -->
+          <tr>
+            <td style="padding:18px 32px 4px;">
+              <div style="background:#f6f8f7;border:1px solid #e8e2d7;border-radius:10px;padding:14px 16px;">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#9aa39c;margin-bottom:8px;">Forma de pago</div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#46524b;">
+                  {% for p in payments %}
+                  <tr><td style="padding:2px 0;">{{ p.method }}</td><td align="right" style="padding:2px 0;">{{ p.amount }}</td></tr>
+                  {% endfor %}
+                  <tr><td style="padding:6px 0 0;border-top:1px solid #e8e2d7;color:#6b746e;">Pagado</td><td align="right" style="padding:6px 0 0;border-top:1px solid #e8e2d7;">{{ totals.paid }}</td></tr>
+                  <tr><td style="padding:2px 0;color:#6b746e;">Cambio</td><td align="right" style="padding:2px 0;color:#0e6e4e;font-weight:600;">{{ totals.change }}</td></tr>
+                </table>
+              </div>
+            </td>
+          </tr>
+
+          {% if sale.note %}
+          <tr>
+            <td style="padding:12px 32px 0;font-size:12px;color:#6b746e;">
+              <strong style="color:#46524b;">Nota:</strong> {{ sale.note }}
+            </td>
+          </tr>
+          {% endif %}
+
+          <!-- Pie -->
+          <tr>
+            <td style="padding:24px 32px 28px;text-align:center;">
+              <div style="font-size:15px;font-weight:600;color:#14201a;">¡Gracias por tu compra!</div>
+              <div style="font-size:12px;color:#9aa39c;margin-top:6px;line-height:1.6;">
+                Este documento es un comprobante de venta de {{ totals.item_count }} artículo(s).<br />
+                {{ business.name }} · {{ business.email }}
+              </div>
+            </td>
+          </tr>
+
+        </table>
+        <div style="font-size:11px;color:#9aa39c;margin-top:14px;">Recibo generado automáticamente · {{ business.name }}</div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
