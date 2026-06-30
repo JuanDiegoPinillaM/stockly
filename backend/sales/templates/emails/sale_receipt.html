@@ -14,22 +14,7 @@
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(20,32,25,.08);">
 
           <!-- Encabezado -->
-          <tr>
-            <td style="background:#0e6e4e;padding:26px 32px;border-bottom:3px solid #b8923a;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="vertical-align:top;">
-                    <div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-.3px;">{{ business.name }}</div>
-                    <div style="font-size:12px;color:#cfe3d9;margin-top:4px;">NIT {{ business.nit }}</div>
-                  </td>
-                  <td style="vertical-align:top;text-align:right;">
-                    <div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#9fc7b6;">Recibo de venta</div>
-                    <div style="font-size:20px;font-weight:700;color:#ffffff;margin-top:2px;">N.º {{ sale.number }}</div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
+          {% include 'emails/_brand_header.html' with doc_label='Recibo de venta' doc_number=sale.number %}
 
           <!-- Datos del emisor -->
           <tr>
@@ -114,12 +99,13 @@
                   <td style="width:50%;"></td>
                   <td style="width:50%;">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">
-                      <tr><td style="padding:4px 0;color:#6b746e;">Subtotal</td><td align="right" style="padding:4px 0;color:#46524b;">{{ totals.subtotal }}</td></tr>
+                      {% if totals.has_discount %}<tr><td style="padding:4px 0;color:#6b746e;">Bruto</td><td align="right" style="padding:4px 0;color:#46524b;">{{ totals.gross }}</td></tr>
+                      <tr><td style="padding:4px 0;color:#6b746e;">Descuento</td><td align="right" style="padding:4px 0;color:#b91c1c;">-{{ totals.discount }}</td></tr>{% endif %}
+                      <tr><td style="padding:4px 0;color:#6b746e;">Subtotal (sin IVA)</td><td align="right" style="padding:4px 0;color:#46524b;">{{ totals.subtotal }}</td></tr>
                       <tr><td style="padding:4px 0;color:#6b746e;">IVA</td><td align="right" style="padding:4px 0;color:#46524b;">{{ totals.tax }}</td></tr>
-                      {% if totals.has_discount %}<tr><td style="padding:4px 0;color:#6b746e;">Descuento</td><td align="right" style="padding:4px 0;color:#b91c1c;">-{{ totals.discount }}</td></tr>{% endif %}
                       <tr>
                         <td style="padding:10px 0 0;font-size:16px;font-weight:700;color:#14201a;border-top:2px solid #e8e2d7;">Total</td>
-                        <td align="right" style="padding:10px 0 0;font-size:18px;font-weight:700;color:#0e6e4e;border-top:2px solid #e8e2d7;">{{ totals.total }}</td>
+                        <td align="right" style="padding:10px 0 0;font-size:18px;font-weight:700;color:{{ business.primary }};border-top:2px solid #e8e2d7;">{{ totals.total }}</td>
                       </tr>
                     </table>
                   </td>
@@ -138,7 +124,7 @@
                   <tr><td style="padding:2px 0;">{{ p.method }}</td><td align="right" style="padding:2px 0;">{{ p.amount }}</td></tr>
                   {% endfor %}
                   <tr><td style="padding:6px 0 0;border-top:1px solid #e8e2d7;color:#6b746e;">Pagado</td><td align="right" style="padding:6px 0 0;border-top:1px solid #e8e2d7;">{{ totals.paid }}</td></tr>
-                  <tr><td style="padding:2px 0;color:#6b746e;">Cambio</td><td align="right" style="padding:2px 0;color:#0e6e4e;font-weight:600;">{{ totals.change }}</td></tr>
+                  <tr><td style="padding:2px 0;color:#6b746e;">Cambio</td><td align="right" style="padding:2px 0;color:{{ business.primary }};font-weight:600;">{{ totals.change }}</td></tr>
                 </table>
               </div>
             </td>
@@ -158,8 +144,9 @@
               <div style="font-size:15px;font-weight:600;color:#14201a;">¡Gracias por tu compra!</div>
               <div style="font-size:12px;color:#9aa39c;margin-top:6px;line-height:1.6;">
                 Este documento es un comprobante de venta de {{ totals.item_count }} artículo(s).<br />
-                {{ business.name }} · {{ business.email }}
+                {{ business.name }}{% if business.email %} · {{ business.email }}{% endif %}
               </div>
+              {% include 'emails/_brand_socials.html' %}
             </td>
           </tr>
 

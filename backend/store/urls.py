@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AccountPurchasesView,
     AccountSaleDetailView,
+    AccountSaleReceiptView,
     AddressViewSet,
     CartItemViewSet,
     OrderViewSet,
@@ -37,5 +38,6 @@ urlpatterns = [
     path('store/points/', StorePointListView.as_view(), name='store-points'),
     path('account/purchases/', AccountPurchasesView.as_view(), name='account-purchases'),
     path('account/purchases/sale/<int:pk>/', AccountSaleDetailView.as_view(), name='account-sale-detail'),
+    path('account/purchases/sale/<int:pk>/send-receipt/', AccountSaleReceiptView.as_view(), name='account-sale-receipt'),
     *router.urls,
 ]

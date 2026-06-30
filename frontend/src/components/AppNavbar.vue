@@ -1,22 +1,34 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu, X, LayoutDashboard, ShoppingCart, Heart, Truck } from 'lucide-vue-next'
 import BrandLogo from '@/components/BrandLogo.vue'
+import { announceIcon } from '@/utils/brandIcons'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 import { useWishlistStore } from '@/stores/wishlist'
+import { useConfigStore } from '@/stores/config'
 
 const auth = useAuthStore()
 const cart = useCartStore()
 const wishlist = useWishlistStore()
+const configStore = useConfigStore()
 const route = useRoute()
 const scrolled = ref(false)
 const mobileOpen = ref(false)
 
+const announceText = computed(() => configStore.config?.announce_text ?? '')
+const announceIconComp = computed(() => announceIcon(configStore.config?.announce_icon) || Truck)
+const announceIconColor = computed(() => configStore.config?.announce_icon_color || '')
+const announceAnim = computed(() => configStore.config?.announce_animation || 'static')
+const marqueeDuration = computed(
+  () => ({ slow: '36s', normal: '24s', fast: '14s' })[configStore.config?.announce_speed] || '24s'
+)
+
 const links = [
   { name: 'Inicio', to: '/' },
   { name: 'Productos', to: '/productos' },
+  { name: 'Tiendas', to: '/tiendas' },
   { name: 'Quiénes somos', to: '/quienes-somos' }
 ]
 
@@ -37,18 +49,30 @@ watch(
 
 <template>
   <header class="hdr">
-    <!-- Barra de anuncio -->
-    <div class="announce">
-      <div class="container announce__inner">
-        <Truck :size="15" />
-        <span>Envío a todo el país · Atención cercana de lunes a sábado</span>
+    <!-- Barra de anuncio (se oculta si no hay texto) -->
+    <div v-if="announceText" class="announce">
+      <!-- Estática -->
+      <div v-if="announceAnim !== 'marquee'" class="container announce__inner">
+        <component :is="announceIconComp" :size="15" :color="announceIconColor || undefined" />
+        <span>{{ announceText }}</span>
+      </div>
+      <!-- Deslizante (marquee) -->
+      <div v-else class="announce__viewport">
+        <div class="announce__track" :style="{ animationDuration: marqueeDuration }">
+          <div v-for="g in 2" :key="g" class="announce__group" :aria-hidden="g === 2 ? 'true' : undefined">
+            <span v-for="n in 4" :key="n" class="announce__item">
+              <component :is="announceIconComp" :size="15" :color="announceIconColor || undefined" />
+              <span>{{ announceText }}</span>
+            </span>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Navegación -->
     <div class="nav" :class="{ 'nav--scrolled': scrolled }">
       <div class="container nav__inner">
-        <router-link to="/" class="nav__brand" aria-label="Stockly inicio">
+        <router-link to="/" class="nav__brand" :aria-label="`${configStore.config?.business_name || 'Inicio'} — inicio`">
           <BrandLogo />
         </router-link>
 
@@ -164,8 +188,8 @@ watch(
 
 /* Barra de anuncio */
 .announce {
-  background: var(--color-ink);
-  color: #e9ecea;
+  background: var(--color-announce);
+  color: var(--color-announce-text);
 }
 .announce__inner {
   display: flex;
@@ -180,20 +204,55 @@ watch(
   color: var(--color-accent);
 }
 
-/* Navegación */
+/* Barra deslizante (marquee) */
+.announce__viewport {
+  overflow: hidden;
+}
+.announce__track {
+  display: flex;
+  width: max-content;
+  animation-name: announce-marquee;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.announce__group {
+  display: flex;
+}
+.announce__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 38px;
+  padding: 0 30px;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+}
+@keyframes announce-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+/* Respeta a quien prefiere menos movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  .announce__track {
+    animation: none;
+  }
+}
+
+/* Navegación — color sólido siempre (sin transparencia). El scroll solo añade
+   una sombra/borde sutil para dar profundidad. */
 .nav {
-  background: rgba(250, 247, 240, 0.82);
-  backdrop-filter: saturate(180%) blur(14px);
-  border-bottom: 1px solid transparent;
+  background: var(--color-navbar);
+  border-bottom: 1px solid var(--color-navbar-line);
   transition:
-    border-color 0.25s ease,
-    box-shadow 0.25s ease,
-    background 0.25s ease;
+    box-shadow 0.25s ease;
 }
 
 .nav--scrolled {
-  background: rgba(255, 255, 255, 0.9);
-  border-bottom-color: var(--color-line);
   box-shadow: var(--shadow-sm);
 }
 
@@ -203,6 +262,15 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 24px;
+}
+
+/* El enlace de marca va como flex para que el logo quede centrado en Y sin el
+   hueco de línea base (descender) que dejaría un <a> inline debajo de la imagen. */
+.nav__brand {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-navbar-ink);
 }
 
 .nav__links {
@@ -216,7 +284,7 @@ watch(
   position: relative;
   font-size: 0.93rem;
   font-weight: 500;
-  color: var(--color-body);
+  color: var(--color-navbar-muted);
   padding: 6px 0;
   transition: color 0.18s ease;
 }
@@ -233,7 +301,7 @@ watch(
 }
 
 .nav__link:hover {
-  color: var(--color-ink);
+  color: var(--color-navbar-ink);
 }
 
 .nav__link:hover::after,
@@ -242,7 +310,7 @@ watch(
 }
 
 .nav__link--active {
-  color: var(--color-ink);
+  color: var(--color-navbar-ink);
   font-weight: 600;
 }
 
@@ -255,7 +323,7 @@ watch(
 .nav__divider {
   width: 1px;
   height: 24px;
-  background: var(--color-line);
+  background: var(--color-navbar-line);
 }
 
 .nav__cart {
@@ -266,7 +334,7 @@ watch(
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  color: var(--color-ink);
+  color: var(--color-navbar-ink);
   transition:
     color 0.18s ease,
     background 0.18s ease;
@@ -291,14 +359,14 @@ watch(
   font-weight: 700;
   color: #fff;
   background: var(--color-accent);
-  border: 2px solid var(--color-surface-alt);
+  border: 2px solid var(--color-navbar);
   border-radius: var(--radius-full);
 }
 
 .nav__login {
   font-size: 0.92rem;
   font-weight: 500;
-  color: var(--color-body);
+  color: var(--color-navbar-muted);
   transition: color 0.18s ease;
 }
 
@@ -312,7 +380,7 @@ watch(
   gap: 9px;
   padding: 5px 14px 5px 5px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-navbar-line);
   transition:
     background 0.18s ease,
     border-color 0.18s ease;
@@ -345,7 +413,7 @@ watch(
 .nav__user-name {
   font-size: 0.9rem;
   font-weight: 500;
-  color: var(--color-ink);
+  color: var(--color-navbar-ink);
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -359,7 +427,7 @@ watch(
   width: 44px;
   height: 44px;
   border-radius: var(--radius-sm);
-  color: var(--color-ink);
+  color: var(--color-navbar-ink);
 }
 
 .nav__mobile {

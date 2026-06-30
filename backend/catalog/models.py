@@ -329,6 +329,26 @@ class ProductAttribute(models.Model):
             )
         ]
 
+    @property
+    def ordered_values(self):
+        """Valores de este atributo en el orden GLOBAL del catálogo.
+
+        Si el atributo proviene de una definición del catálogo (Color, Talla…),
+        sus valores se ordenan según la posición de la opción equivalente en el
+        catálogo (AttributeOption.position) — así el orden que se fija una vez en
+        Atributos (S, M, L, XL) se respeta en la tienda, el POS y todo el sitio.
+        Los valores sin opción equivalente van al final, por su propio orden.
+        """
+        values = list(self.values.all())
+        if not self.definition_id:
+            return values
+        pos = {o.value.lower(): o.position for o in self.definition.options.all()}
+        fallback = (max(pos.values()) + 1) if pos else 0
+        return sorted(
+            values,
+            key=lambda v: (pos.get(v.value.lower(), fallback), v.position, v.id),
+        )
+
     def __str__(self):
         return f'{self.product.name} · {self.name}'
 

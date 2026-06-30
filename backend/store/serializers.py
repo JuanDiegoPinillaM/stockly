@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 
 from django.utils import timezone
@@ -14,9 +15,16 @@ from catalog.models import (
     Subcategory,
 )
 from inventory.models import Warehouse
+from inventory.schedule import summarize_schedule
 
-from .models import Address, CartItem, Order, OrderItem, SavedPaymentMethod
-from .services import create_order
+from .models import Address, CartItem, Order, OrderAllocation, OrderItem, SavedPaymentMethod
+from .services import (
+    allocate_delivery,
+    allocate_pickup_split,
+    create_order,
+    pickup_warehouses,
+    single_warehouse_allocation,
+)
 
 
 def _abs_url(serializer, file_field):
@@ -144,7 +152,7 @@ class StoreProductSerializer(serializers.ModelSerializer):
         for im in obj.images.all():
             imgs_by_val.setdefault(im.value_id, []).append(im)
         out = []
-        for val in axis.values.all():
+        for val in axis.ordered_values:
             variants = [
                 v for v in obj.variants.all()
                 if v.is_active and any(vv.value_id == val.id for vv in v.values.all())
@@ -192,7 +200,7 @@ class StoreProductDetailSerializer(StoreProductSerializer):
                 'is_image_axis': a.is_image_axis,
                 'values': [
                     {'id': v.id, 'value': v.value, 'swatch_hex': v.swatch_hex}
-                    for v in a.values.all()
+                    for v in a.ordered_values
                 ],
             })
         return out
@@ -333,6 +341,13 @@ class AddressSerializer(serializers.ModelSerializer):
             'city': {'required': True},
         }
 
+    def validate_phone(self, value):
+        # Exactamente 10 dígitos; se normaliza al formato agrupado "300 123 4567".
+        digits = re.sub(r'\D', '', value or '')
+        if len(digits) != 10:
+            raise serializers.ValidationError('El teléfono debe tener 10 dígitos.')
+        return f'{digits[:3]} {digits[3:6]} {digits[6:]}'
+
     def validate(self, attrs):
         country = attrs.get('country') or getattr(self.instance, 'country', None)
         department = attrs.get('department') or getattr(self.instance, 'department', None)
@@ -360,11 +375,38 @@ class SavedPaymentMethodSerializer(serializers.ModelSerializer):
 # ----------------------------- Pedidos -----------------------------
 
 class StorePointSerializer(serializers.ModelSerializer):
-    """Punto/tienda donde el comprador puede pedir o recoger (bodega activa)."""
+    """Punto/tienda donde el comprador puede pedir o recoger (bodega activa),
+    con sus datos de vitrina pública (ubicación, contacto, foto, horario y mapa)."""
+
+    photo = serializers.SerializerMethodField()
+    city_name = serializers.CharField(source='city.name', read_only=True, default=None)
+    department_name = serializers.CharField(
+        source='city.department.name', read_only=True, default=None
+    )
+    country_name = serializers.CharField(
+        source='city.department.country.name', read_only=True, default=None
+    )
+    schedule_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Warehouse
-        fields = ['id', 'name', 'address']
+        fields = [
+            'id', 'name', 'address', 'description', 'email', 'phone',
+            'city_name', 'department_name', 'country_name',
+            'hours', 'schedule_display', 'photo', 'map_embed_url',
+        ]
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_photo(self, obj):
+        if not obj.photo:
+            return None
+        request = self.context.get('request')
+        url = obj.photo.url
+        return request.build_absolute_uri(url) if request else url
+
+    @extend_schema_field({'type': 'array', 'items': {'type': 'object'}})
+    def get_schedule_display(self, obj):
+        return summarize_schedule(obj.schedule)
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -384,10 +426,24 @@ class OrderItemSerializer(serializers.ModelSerializer):
         return _abs_url(self, img.image if img else None)
 
 
+class OrderAllocationSerializer(serializers.ModelSerializer):
+    """Reparto de una variante del pedido en una bodega (fulfillment dividido)."""
+
+    warehouse_name = serializers.CharField(source='warehouse.name', read_only=True)
+    description = serializers.CharField(source='variant.product.name', read_only=True)
+    options = serializers.CharField(source='variant.options_label', read_only=True)
+
+    class Meta:
+        model = OrderAllocation
+        fields = ['id', 'variant', 'description', 'options', 'warehouse', 'warehouse_name', 'quantity']
+        read_only_fields = fields
+
+
 class OrderSerializer(serializers.ModelSerializer):
     """Lectura de un pedido con sus líneas."""
 
     items = OrderItemSerializer(many=True, read_only=True)
+    allocations = OrderAllocationSerializer(many=True, read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     fulfillment_display = serializers.CharField(source='get_fulfillment_display', read_only=True)
     payment_display = serializers.CharField(source='get_payment_method_display', read_only=True)
@@ -398,11 +454,15 @@ class OrderSerializer(serializers.ModelSerializer):
     customer_document = serializers.CharField(source='user.id_number', read_only=True, default=None)
     total_items = serializers.IntegerField(read_only=True)
     is_open = serializers.BooleanField(read_only=True)
+    code = serializers.CharField(read_only=True)
+    # Venta generada al entregar el pedido (un pedido culmina en una venta).
+    sale_id = serializers.IntegerField(source='sale.id', read_only=True, default=None)
+    sale_code = serializers.CharField(source='sale.code', read_only=True, default=None)
 
     class Meta:
         model = Order
         fields = [
-            'id', 'number', 'status', 'status_display',
+            'id', 'number', 'code', 'status', 'status_display',
             'fulfillment', 'fulfillment_display',
             'payment_method', 'payment_display', 'is_paid',
             'warehouse', 'warehouse_name',
@@ -410,8 +470,8 @@ class OrderSerializer(serializers.ModelSerializer):
             'subtotal', 'tax_total', 'total', 'total_items',
             'ship_recipient', 'ship_phone', 'ship_phone_alt', 'ship_line1',
             'ship_city', 'ship_department', 'ship_country', 'ship_notes',
-            'note', 'cancel_reason', 'is_open',
-            'items',
+            'note', 'cancel_reason', 'is_open', 'sale_id', 'sale_code',
+            'items', 'allocations',
             'created_at', 'confirmed_at', 'shipped_at', 'delivered_at', 'cancelled_at',
         ]
         read_only_fields = fields
@@ -438,12 +498,33 @@ class AvailabilityCheckSerializer(serializers.Serializer):
         return value
 
 
-class OrderCreateSerializer(serializers.Serializer):
-    """Crea un pedido en línea; la lógica vive en services.create_order."""
+class FulfillmentOptionsSerializer(serializers.Serializer):
+    """Entrada para consultar las opciones de entrega de un carrito (solo ítems)."""
 
+    items = _OrderItemInput(many=True)
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError('El carrito está vacío.')
+        return value
+
+
+class OrderCreateSerializer(serializers.Serializer):
+    """Crea un pedido en línea; la lógica vive en services.create_order.
+
+    El comprador ya NO elige la bodega: en envío a domicilio el sistema la decide
+    por cercanía y existencia (smart order routing); para recoger, el comprador
+    elige `warehouse` solo entre las tiendas que tienen el pedido completo.
+    """
+
+    # Solo se envía cuando es "recoger en una tienda" concreta. En envío a
+    # domicilio se ignora (lo decide el ruteo); en recoger dividido tampoco.
     warehouse = serializers.PrimaryKeyRelatedField(
-        queryset=Warehouse.objects.filter(is_active=True)
+        queryset=Warehouse.objects.filter(is_active=True),
+        required=False, allow_null=True,
     )
+    # Recoger repartido en varias tiendas (cuando ninguna sola tiene todo).
+    pickup_split = serializers.BooleanField(required=False, default=False)
     fulfillment = serializers.ChoiceField(choices=Order.Fulfillment.choices)
     payment_method = serializers.ChoiceField(choices=Order.Payment.choices)
     # Dirección propia del comprador; obligatoria solo para envío a domicilio.
@@ -466,10 +547,38 @@ class OrderCreateSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        if attrs['fulfillment'] == Order.Fulfillment.DELIVERY and not attrs.get('address'):
-            raise serializers.ValidationError(
-                {'address': 'Indica una dirección de envío.'}
-            )
+        items = attrs['items']
+        if attrs['fulfillment'] == Order.Fulfillment.DELIVERY:
+            # Envío: el comprador no elige tienda. El sistema reparte el pedido
+            # entre las sedes más cercanas (varias si hace falta).
+            address = attrs.get('address')
+            if not address:
+                raise serializers.ValidationError({'address': 'Indica una dirección de envío.'})
+            allocations = allocate_delivery(items, address)
+            if allocations is None:
+                raise serializers.ValidationError(
+                    'No tenemos existencia suficiente para enviarte este pedido en este momento.'
+                )
+        elif attrs.get('pickup_split'):
+            # Recoger repartido entre varias tiendas públicas.
+            allocations = allocate_pickup_split(items)
+            if allocations is None:
+                raise serializers.ValidationError(
+                    'No hay existencia suficiente en las tiendas para recoger este pedido.'
+                )
+        else:
+            # Recoger en UNA tienda elegida por el comprador (con el pedido completo).
+            warehouse = attrs.get('warehouse')
+            if warehouse is None:
+                raise serializers.ValidationError(
+                    {'warehouse': 'Elige la tienda donde vas a recoger.'}
+                )
+            allocations = single_warehouse_allocation(items, warehouse)
+            if allocations is None:
+                raise serializers.ValidationError(
+                    {'warehouse': 'Esa tienda no tiene tu pedido completo disponible.'}
+                )
+        attrs['allocations'] = allocations
         return attrs
 
     def create(self, validated_data):
@@ -490,7 +599,7 @@ class OrderCreateSerializer(serializers.Serializer):
             }
         return create_order(
             user=request.user,
-            warehouse=validated_data['warehouse'],
+            allocations=validated_data['allocations'],
             fulfillment=validated_data['fulfillment'],
             payment_method=validated_data['payment_method'],
             items=validated_data['items'],

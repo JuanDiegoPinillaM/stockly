@@ -3,15 +3,13 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils import timezone
 
-# Datos del emisor que aparecen en el recibo. Edítalos con los de tu negocio
-# (o muévelos a settings/variables de entorno si prefieres configurarlos ahí).
-BUSINESS = {
-    'name': getattr(settings, 'BUSINESS_NAME', 'Stockly'),
-    'nit': getattr(settings, 'BUSINESS_NIT', '900.123.456-7'),
-    'address': getattr(settings, 'BUSINESS_ADDRESS', 'Cra 00 #00-00, Medellín, Colombia'),
-    'phone': getattr(settings, 'BUSINESS_PHONE', '+57 300 123 4567'),
-    'email': getattr(settings, 'BUSINESS_EMAIL', 'hola@stockly.com'),
-}
+from siteconfig.branding import email_brand
+
+
+def get_business():
+    """Marca del emisor del recibo (datos + colores + logo + redes), tomada del
+    módulo de Configuración para que el correo respete la Personalización."""
+    return email_brand()
 
 
 def _cop(value):
@@ -48,7 +46,7 @@ def _receipt_context(sale):
         for p in sale.payments.all()
     ]
     return {
-        'business': BUSINESS,
+        'business': get_business(),
         'sale': {
             'number': sale.number,
             'date': timezone.localtime(sale.created_at).strftime('%d/%m/%Y · %I:%M %p'),
@@ -62,6 +60,7 @@ def _receipt_context(sale):
         'items': items,
         'payments': payments,
         'totals': {
+            'gross': _cop(sale.total + sale.discount),
             'subtotal': _cop(sale.subtotal),
             'tax': _cop(sale.tax_total),
             'discount': _cop(sale.discount),
@@ -77,7 +76,7 @@ def _receipt_context(sale):
 def send_receipt_email(sale, to_email):
     """Envía el recibo de una venta (texto + HTML) al correo indicado."""
     context = _receipt_context(sale)
-    subject = f'Recibo de compra · {BUSINESS["name"]} — Venta #{sale.number}'
+    subject = f'Recibo de compra · {context["business"]["name"]} — Venta #{sale.number}'
     text = render_to_string('emails/sale_receipt.txt', context)
     html = render_to_string('emails/sale_receipt.html', context)
     msg = EmailMultiAlternatives(subject, text, settings.DEFAULT_FROM_EMAIL, [to_email])

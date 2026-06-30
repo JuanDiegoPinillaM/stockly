@@ -30,8 +30,8 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(700px 320px at 85% -10%, rgba(14, 110, 78, 0.07), transparent 60%),
-    radial-gradient(560px 320px at 5% 110%, rgba(184, 146, 58, 0.08), transparent 55%),
+    radial-gradient(700px 320px at 85% -10%, rgba(var(--color-primary-rgb), 0.07), transparent 60%),
+    radial-gradient(560px 320px at 5% 110%, rgba(var(--color-accent-rgb), 0.08), transparent 55%),
     var(--color-surface-alt);
 }
 .auth-page__inner {

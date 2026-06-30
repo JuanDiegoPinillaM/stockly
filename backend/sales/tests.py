@@ -26,6 +26,13 @@ class SalesTestBase(APITestCase):
             product=self.product, sku='IPH-1', sale_price=Decimal('11900')
         )
         self.warehouse = Warehouse.objects.create(name='Principal')
+        # Cliente obligatorio en toda venta: un comprador para los payloads base.
+        self.buyer = User(
+            email='cliente@test.com', first_name='Cliente', role=User.Role.BUYER,
+            is_email_verified=True, id_number='100',
+        )
+        self.buyer.set_password('Stockly2026')
+        self.buyer.save()
         # El cajero opera sobre su bodega asignada (regla del POS por bodega).
         self.cashier.warehouse = self.warehouse
         self.cashier.save(update_fields=['warehouse'])
@@ -52,6 +59,7 @@ class SalesTestBase(APITestCase):
     def _sale_payload(self, **over):
         data = {
             'warehouse': self.warehouse.id,
+            'customer': self.buyer.id,
             'items': [{'variant': self.variant.id, 'quantity': 2}],
             'payments': [{'method': 'efectivo', 'amount': '25000'}],
         }
@@ -70,6 +78,29 @@ class SaleTests(SalesTestBase):
         self.assertEqual(Decimal(resp.data['tax_total']), Decimal('3800.00'))
         self.assertEqual(Decimal(resp.data['change']), Decimal('1200.00'))
 
+    def test_buyer_resends_own_receipt(self):
+        from django.core import mail
+        self._auth(self.cashier)
+        sale = self.client.post('/api/v1/sales/', self._sale_payload(), format='json').data
+        self._auth(self.buyer)
+        mail.outbox = []
+        resp = self.client.post(
+            f'/api/v1/account/purchases/sale/{sale["id"]}/send-receipt/', format='json'
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertTrue(mail.outbox, 'No se reenvió el recibo')
+        self.assertIn('cliente@test.com', mail.outbox[0].to)
+
+    def test_buyer_cannot_resend_others_receipt(self):
+        self._auth(self.cashier)
+        sale = self.client.post('/api/v1/sales/', self._sale_payload(), format='json').data
+        other = self._user('otro@test.com', User.Role.BUYER)
+        self._auth(other)
+        resp = self.client.post(
+            f'/api/v1/account/purchases/sale/{sale["id"]}/send-receipt/', format='json'
+        )
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_sale_reduces_stock_via_kardex(self):
         self._auth(self.cashier)
         self.client.post('/api/v1/sales/', self._sale_payload(), format='json')
@@ -85,6 +116,23 @@ class SaleTests(SalesTestBase):
         resp = self.client.post('/api/v1/sales/', payload, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Decimal(resp.data['total']), Decimal('20000.00'))
+
+    def test_discount_recomputes_taxable_base_and_iva(self):
+        # El descuento reduce la base gravable y el IVA se recalcula sobre el
+        # neto: subtotal + IVA debe seguir siendo igual al total.
+        self._auth(self.cashier)
+        # 2 × 11900 = 23800 (IVA 19% incluido); descuento de 3800 → total 20000.
+        resp = self.client.post('/api/v1/sales/', self._sale_payload(discount='3800'), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        subtotal = Decimal(resp.data['subtotal'])
+        tax = Decimal(resp.data['tax_total'])
+        total = Decimal(resp.data['total'])
+        self.assertEqual(total, Decimal('20000.00'))
+        # El desglose cuadra: base + IVA = total (antes el IVA quedaba inflado).
+        self.assertEqual(subtotal + tax, total)
+        # IVA = total − total/1.19 ≈ 3193.28 (sobre el neto, no sobre el bruto).
+        expected_tax = (total - (total / Decimal('1.19'))).quantize(Decimal('0.01'))
+        self.assertEqual(tax, expected_tax)
 
     def test_cannot_sell_more_than_stock(self):
         self._auth(self.cashier)
@@ -125,6 +173,18 @@ class SaleTests(SalesTestBase):
         self._auth(self.admin)
         ok = self.client.post(f'/api/v1/sales/{sale["id"]}/void/')
         self.assertEqual(ok.status_code, status.HTTP_200_OK)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock, 10)
+
+    def test_sale_requires_customer(self):
+        # El cliente es obligatorio: una venta sin cliente debe rechazarse.
+        self._auth(self.cashier)
+        payload = self._sale_payload()
+        payload.pop('customer')
+        resp = self.client.post('/api/v1/sales/', payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('customer', resp.data.get('errors', {}))
+        # No descontó inventario.
         self.variant.refresh_from_db()
         self.assertEqual(self.variant.stock, 10)
 

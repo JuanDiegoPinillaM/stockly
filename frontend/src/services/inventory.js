@@ -5,6 +5,15 @@ import api from './api'
  * existencias por bodega y bajo stock. Reutiliza el cliente axios central.
  */
 
+// Cuando el payload es FormData (subida de foto), hay que dejar que axios fije
+// el Content-Type multipart con su boundary; si no, el cliente fuerza JSON y el
+// archivo llega como texto ("La información enviada no era un archivo").
+function cfg(payload) {
+  return payload instanceof FormData
+    ? { headers: { 'Content-Type': 'multipart/form-data' } }
+    : undefined
+}
+
 // ----------------------------- Bodegas -----------------------------
 export const warehousesApi = {
   list(params = {}) {
@@ -14,10 +23,10 @@ export const warehousesApi = {
     return api.get(`/warehouses/${id}/`).then((r) => r.data)
   },
   create(payload) {
-    return api.post('/warehouses/', payload).then((r) => r.data)
+    return api.post('/warehouses/', payload, cfg(payload)).then((r) => r.data)
   },
   update(id, payload) {
-    return api.patch(`/warehouses/${id}/`, payload).then((r) => r.data)
+    return api.patch(`/warehouses/${id}/`, payload, cfg(payload)).then((r) => r.data)
   },
   remove(id) {
     return api.delete(`/warehouses/${id}/`)

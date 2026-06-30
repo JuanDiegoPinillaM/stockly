@@ -57,10 +57,8 @@ def create_sale(
     if discount < 0:
         raise SaleError('El descuento no puede ser negativo.')
 
-    # ---- Construye las líneas y los totales (precio incluye IVA) ----
+    # ---- Construye las líneas y el bruto (los precios incluyen IVA) ----
     gross = Decimal('0')
-    subtotal = Decimal('0')
-    tax_total = Decimal('0')
     line_rows = []
     for entry in items:
         variant = entry['variant']
@@ -71,13 +69,7 @@ def create_sale(
         unit_price = _money(variant.sale_price)
         rate = int(variant.product.tax_rate or 0)
         line_total = _money(unit_price * quantity)
-        divisor = Decimal(1) + Decimal(rate) / Decimal(100)
-        line_subtotal = _money(line_total / divisor) if divisor else line_total
-        line_tax = _money(line_total - line_subtotal)
-
         gross += line_total
-        subtotal += line_subtotal
-        tax_total += line_tax
 
         opts = variant.options_label
         description = variant.product.name + (f' — {opts}' if opts else '')
@@ -97,6 +89,32 @@ def create_sale(
     if discount > gross:
         raise SaleError('El descuento no puede ser mayor al total.')
     total = _money(gross - discount)
+
+    # ---- Desglosa base e IVA SOBRE EL NETO (descuento prorrateado) ----
+    # El descuento reduce la base gravable: se reparte a prorrata entre las
+    # líneas y el IVA se recalcula sobre el monto ya descontado. Así el desglose
+    # siempre cuadra: subtotal + IVA = total (= bruto − descuento). Soporta IVA
+    # mixto (cada línea con su tasa).
+    subtotal = Decimal('0')
+    tax_total = Decimal('0')
+    running_net = Decimal('0')
+    last = len(line_rows) - 1
+    for idx, row in enumerate(line_rows):
+        if gross > 0:
+            # La última línea absorbe el redondeo para que la suma cuadre.
+            net_line = (
+                total - running_net
+                if idx == last
+                else _money(row['line_total'] * total / gross)
+            )
+        else:
+            net_line = Decimal('0')
+        running_net += net_line
+        divisor = Decimal(1) + Decimal(row['tax_rate']) / Decimal(100)
+        line_subtotal = _money(net_line / divisor) if divisor else net_line
+        line_tax = _money(net_line - line_subtotal)
+        subtotal += line_subtotal
+        tax_total += line_tax
 
     # ---- Valida los pagos ----
     if not payments:
@@ -145,7 +163,7 @@ def create_sale(
             type=MovementType.EXIT,
             quantity=row['quantity'],
             reason=MovementReason.SALE,
-            reference=f'Venta #{sale.number}',
+            reference=f'Venta {sale.code}',
             user=user,
         )
 
@@ -165,7 +183,7 @@ def void_sale(sale, *, user=None):
             type=MovementType.ADJUST_IN,
             quantity=item.quantity,
             reason=MovementReason.CORRECTION,
-            reference=f'Anulación venta #{sale.number}',
+            reference=f'Anulación venta {sale.code}',
             user=user,
         )
 

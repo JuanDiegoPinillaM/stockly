@@ -1,0 +1,14 @@
+{{ business.name }} — {{ headline }}
+Pedido #{{ order.number }}
+Estado: {{ order.get_status_display }}
+
+{{ message }}
+{% if cancel_reason %}Motivo: {{ cancel_reason }}
+{% endif %}
+Total: ${{ order.total|floatformat:0 }}
+Entrega: {{ order.get_fulfillment_display }}
+{% if order.fulfillment == 'envio' %}Enviar a: {{ order.ship_recipient }}, {{ order.ship_line1 }}{% if order.ship_city %}, {{ order.ship_city }}{% endif %}
+{% else %}Recoge en: {{ order.warehouse.name }}
+{% endif %}
+Gracias por tu compra.
+{{ business.name }}{% if business.email %} · {{ business.email }}{% endif %}

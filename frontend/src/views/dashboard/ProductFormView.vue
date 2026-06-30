@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter, RouterLink, onBeforeRouteLeave } from 'vue-router'
-import { ArrowLeft, ImagePlus, X, Plus, Trash2, Star, RotateCcw } from 'lucide-vue-next'
+import { ArrowLeft, ImagePlus, X, Plus, Trash2, Star, RotateCcw, ChevronDown } from 'lucide-vue-next'
 import {
   productsApi,
   categoriesApi,
@@ -36,7 +36,6 @@ const selectedCategory = ref('')
 const brands = ref([])
 const definitions = ref([]) // catálogo de atributos (Color, Talla…) con sus opciones
 const warehouses = ref([])
-const initialWarehouse = ref('')
 
 const unitOptions = [
   { value: 'unidad', label: 'Unidad' }, { value: 'kg', label: 'Kilogramo' },
@@ -400,16 +399,42 @@ async function onImgDrop(g, i) {
 }
 
 // ----------------------------- Variantes -----------------------------
-// Borrador para crear una variante (un valor por atributo + datos).
+// Variantes existentes colapsables (acordeón) para que la lista no se alargue.
+const expandedVariants = ref(new Set())
+function toggleVariant(id) {
+  const next = new Set(expandedVariants.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  expandedVariants.value = next
+}
+
+// Borrador para crear una variante (un valor por atributo + datos). El stock
+// inicial se puede REPARTIR entre varias bodegas (una fila por bodega).
 const newVariant = ref(null)
 function startNewVariant() {
   newVariant.value = {
-    selected: {}, sku: '', barcode: '', cost_price: '', sale_price: '', stock: 0, min_stock: 0
+    selected: {}, sku: '', barcode: '', cost_price: '', sale_price: '', min_stock: 0,
+    stockRows: [{ warehouse: warehouses.value[0]?.id ?? '', quantity: '' }]
   }
 }
 function cancelNewVariant() {
   newVariant.value = null
 }
+function addStockRow() {
+  newVariant.value.stockRows.push({ warehouse: '', quantity: '' })
+}
+function removeStockRow(i) {
+  newVariant.value.stockRows.splice(i, 1)
+}
+// Bodegas aún no usadas por OTRA fila (evita repetir bodega en el reparto).
+function warehousesForRow(row) {
+  const used = new Set(
+    newVariant.value.stockRows.filter((r) => r !== row && r.warehouse).map((r) => r.warehouse)
+  )
+  return warehouses.value.filter((w) => !used.has(w.id))
+}
+const newVariantStockTotal = computed(() =>
+  (newVariant.value?.stockRows || []).reduce((s, r) => s + (Number(r.quantity) || 0), 0)
+)
 
 const newVariantValid = computed(() => {
   const nv = newVariant.value
@@ -422,8 +447,10 @@ async function saveNewVariant() {
   const nv = newVariant.value
   if (!newVariantValid.value) return
   const valueIds = attributes.value.map((a) => nv.selected[a.id])
-  if (Number(nv.stock) > 0 && !initialWarehouse.value) {
-    toastError('Selecciona la bodega para el stock inicial.')
+  // Filas de stock con cantidad > 0; cada una necesita su bodega.
+  const stockRows = (nv.stockRows || []).filter((r) => Number(r.quantity) > 0)
+  if (stockRows.some((r) => !r.warehouse)) {
+    toastError('Elige la bodega para cada cantidad de stock inicial.')
     return
   }
   try {
@@ -436,10 +463,11 @@ async function saveNewVariant() {
       min_stock: nv.min_stock || 0,
       value_ids: valueIds
     })
-    if (Number(nv.stock) > 0 && initialWarehouse.value) {
+    // Un movimiento de entrada (saldo inicial) por cada bodega del reparto.
+    for (const r of stockRows) {
       await movementsApi.create({
-        variant: v.id, warehouse: initialWarehouse.value, type: 'entrada',
-        reason: 'saldo_inicial', quantity: Number(nv.stock), unit_cost: nv.cost_price || 0,
+        variant: v.id, warehouse: r.warehouse, type: 'entrada',
+        reason: 'saldo_inicial', quantity: Number(r.quantity), unit_cost: nv.cost_price || 0,
         note: 'Saldo inicial al crear la variante'
       })
     }
@@ -631,7 +659,6 @@ onMounted(async () => {
     brands.value = brs.results
     definitions.value = defs.results
     warehouses.value = whs.results
-    if (warehouses.value.length) initialWarehouse.value = warehouses.value[0].id
     if (isEdit.value) await loadProduct()
   } catch {
     error.value = 'No se pudo cargar la información.'
@@ -759,6 +786,9 @@ onBeforeRouteLeave(async () => {
                 <button class="vchip__x" title="Quitar valor" @click="removeValue(a, val)"><X :size="12" /></button>
               </span>
             </div>
+            <span v-if="a.values.length > 1" class="muted-hint">
+              El orden de los valores se define en <RouterLink :to="{ name: 'attributes' }">Atributos</RouterLink> y se respeta en la tienda y el POS.
+            </span>
             <div v-if="availableLibrary(a).length" class="value-lib">
               <SearchSelect
                 :model-value="libPick[a.id] || ''"
@@ -884,7 +914,7 @@ onBeforeRouteLeave(async () => {
           </div>
 
           <!-- Nueva variante -->
-          <div v-if="newVariant" class="variant variant--open">
+          <div v-if="newVariant" class="variant variant--new">
             <div class="variant__body">
               <div class="field-row">
                 <label v-for="a in attributes" :key="a.id" class="field">
@@ -907,13 +937,36 @@ onBeforeRouteLeave(async () => {
                 <label class="field"><span class="field__label">Precio de venta</span><MoneyInput v-model="newVariant.sale_price" /></label>
               </div>
               <div class="field-row">
-                <label class="field"><span class="field__label">Stock inicial</span><input v-model.number="newVariant.stock" type="number" min="0" class="field__input" /></label>
                 <label class="field"><span class="field__label">Stock mínimo</span><input v-model.number="newVariant.min_stock" type="number" min="0" class="field__input" /></label>
+                <div class="field"></div>
               </div>
-              <label v-if="Number(newVariant.stock) > 0" class="field">
-                <span class="field__label">Bodega del stock inicial</span>
-                <SearchSelect v-model="initialWarehouse" :options="warehouses" :placeholder="warehouses.length ? 'Selecciona' : 'No hay bodegas'" />
-              </label>
+              <div class="field">
+                <span class="field__label">Stock inicial por bodega</span>
+                <div v-for="(row, i) in newVariant.stockRows" :key="i" class="stock-row">
+                  <SearchSelect
+                    v-model="row.warehouse"
+                    :options="warehousesForRow(row)"
+                    :placeholder="warehouses.length ? 'Bodega' : 'No hay bodegas'"
+                  />
+                  <input v-model.number="row.quantity" type="number" min="0" class="field__input" placeholder="Cant." />
+                  <button v-if="newVariant.stockRows.length > 1" type="button" class="icon-btn icon-btn--danger" title="Quitar" @click="removeStockRow(i)">
+                    <X :size="14" />
+                  </button>
+                </div>
+                <div class="stock-foot">
+                  <button
+                    v-if="newVariant.stockRows.length < warehouses.length"
+                    type="button"
+                    class="btn btn--ghost btn--sm"
+                    @click="addStockRow"
+                  >
+                    <Plus :size="14" /> Otra bodega
+                  </button>
+                  <span class="muted-hint">
+                    Total inicial: <strong>{{ newVariantStockTotal }}</strong> unidad(es). Déjalo en 0 si aún no quieres stock.
+                  </span>
+                </div>
+              </div>
               <div class="variant__actions">
                 <button class="btn btn--ghost btn--sm" @click="cancelNewVariant">Cancelar</button>
                 <button class="btn btn--primary btn--sm" :disabled="!newVariantValid" @click="saveNewVariant">Crear variante</button>
@@ -921,15 +974,17 @@ onBeforeRouteLeave(async () => {
             </div>
           </div>
 
-          <!-- Variantes existentes -->
-          <div v-for="v in variants" :key="v.id" class="variant variant--open">
-            <div class="variant__body">
-              <div class="variant__title-row">
-                <span class="variant__attrs">{{ v.options_label || 'Estándar' }}</span>
-                <span v-if="variantsSnapshot[v.id] !== variantState(v)" class="dirty-chip">sin guardar</span>
-                <span class="muted">stock {{ v.stock }} · se ajusta en Movimientos</span>
-                <button class="icon-btn icon-btn--danger" title="Eliminar" @click="removeVariant(v)"><Trash2 :size="14" /></button>
-              </div>
+          <!-- Variantes existentes (colapsables) -->
+          <div v-for="v in variants" :key="v.id" class="variant">
+            <div class="variant__head" @click="toggleVariant(v.id)">
+              <ChevronDown :size="18" class="variant__chevron" :class="{ open: expandedVariants.has(v.id) }" />
+              <span class="variant__attrs">{{ v.options_label || 'Estándar' }}</span>
+              <span v-if="variantsSnapshot[v.id] !== variantState(v)" class="dirty-chip">sin guardar</span>
+              <code class="variant__sku">{{ v.sku }}</code>
+              <span class="muted variant__stock">stock {{ v.stock }}</span>
+              <button class="icon-btn icon-btn--danger" title="Eliminar" @click.stop="removeVariant(v)"><Trash2 :size="14" /></button>
+            </div>
+            <div v-if="expandedVariants.has(v.id)" class="variant__body">
               <div v-if="attributes.length" class="field-row">
                 <label v-for="a in attributes" :key="a.id" class="field">
                   <span class="field__label">{{ a.name }} *</span>
@@ -955,7 +1010,11 @@ onBeforeRouteLeave(async () => {
                 <label class="field"><span class="field__label">Precio de venta</span><MoneyInput v-model="v.sale_price" /></label>
               </div>
               <div class="field-row">
-                <label class="field"><span class="field__label">Stock mínimo</span><input v-model.number="v.min_stock" type="number" min="0" class="field__input" /></label>
+                <label class="field">
+                  <span class="field__label">Stock mínimo</span>
+                  <input v-model.number="v.min_stock" type="number" min="0" class="field__input" />
+                  <span class="muted-hint">El stock ({{ v.stock }}) se ajusta en Movimientos.</span>
+                </label>
                 <div class="field"></div>
               </div>
             </div>
@@ -1394,11 +1453,47 @@ onBeforeRouteLeave(async () => {
   border-radius: var(--radius-sm);
   background: #fff;
 }
+.variant__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.variant__head:hover {
+  background: var(--color-surface-alt);
+}
+.variant__chevron {
+  color: var(--color-muted);
+  transition: transform 0.18s ease;
+  flex-shrink: 0;
+}
+.variant__chevron.open {
+  transform: rotate(180deg);
+}
+.variant__sku {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+.variant__stock {
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
 .variant__body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 14px;
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--color-surface-alt);
+}
+.variant--new {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+.variant--new .variant__body {
+  border-top: none;
+  padding-top: 14px;
 }
 .variant__title-row {
   display: flex;
@@ -1409,6 +1504,19 @@ onBeforeRouteLeave(async () => {
   font-weight: 600;
   color: var(--color-ink);
   flex: 1;
+}
+.stock-row {
+  display: grid;
+  grid-template-columns: 1fr 120px auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.stock-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .variant__actions,
 .variant__save {

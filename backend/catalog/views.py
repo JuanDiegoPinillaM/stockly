@@ -220,6 +220,7 @@ class ProductViewSet(SoftDeleteModelViewSet):
         )
         .prefetch_related(
             'attributes__values',
+            'attributes__definition__options',
             'images',
             'variants__values__value__attribute',
         )

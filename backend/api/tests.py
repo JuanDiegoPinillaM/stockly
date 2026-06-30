@@ -6,7 +6,8 @@ from rest_framework.test import APITestCase
 from catalog.models import Category, Product, ProductVariant, Subcategory
 from inventory.models import Warehouse
 from sales.models import Sale, SaleItem, SalePayment, SaleStatus
-from store.models import Order
+from store.models import Order, OrderItem
+from store.services import build_sale_from_order
 
 User = get_user_model()
 
@@ -66,6 +67,30 @@ class AnalyticsTests(APITestCase):
         self.assertTrue(len(resp.data['top_products']) >= 1)
         self.assertIn('inventory', resp.data)
 
+    def test_delivered_order_counted_once_as_sale(self):
+        # Un pedido entregado culmina en venta (canal online). La analítica lo
+        # cuenta UNA vez (como venta), no también como pedido.
+        order = Order.objects.create(
+            number=2, user=self.buyer, warehouse=self.wh,
+            payment_method=Order.Payment.CARD, status=Order.Status.DELIVERED,
+            subtotal=Decimal('42016'), tax_total=Decimal('7984'), total=Decimal('50000'),
+        )
+        OrderItem.objects.create(
+            order=order, variant=self.v, description='Camiseta', quantity=2,
+            unit_price=Decimal('25000'), unit_cost=Decimal('10000'),
+            line_total=Decimal('50000'), tax_rate=19,
+        )
+        build_sale_from_order(order)
+
+        self._auth(self.admin)
+        resp = self.client.get('/api/v1/analytics/overview/?period=30d')
+        # Venta POS (50k) + pedido pendiente (50k) + pedido entregado→venta (50k).
+        self.assertEqual(resp.data['kpis']['revenue']['value'], 150000.0)
+        self.assertEqual(resp.data['kpis']['transactions']['value'], 3)
+        # El canal "Tienda en línea" incluye la venta del pedido entregado.
+        online = next(c['amount'] for c in resp.data['channels'] if c['name'] == 'Tienda en línea')
+        self.assertEqual(online, 100000.0)  # pendiente (50k) + entregado (50k)
+
     def test_periods_supported(self):
         self._auth(self.admin)
         for p in ('7d', '30d', '90d', '12m'):
@@ -95,3 +120,20 @@ class AnalyticsTests(APITestCase):
         self.assertIn('text/csv', resp['Content-Type'])
         self.assertIn('attachment', resp['Content-Disposition'])
         self.assertIn('Total', resp.content.decode('utf-8'))
+
+    def test_export_inventory_valued(self):
+        self._auth(self.admin)
+        resp = self.client.get('/api/v1/analytics/export/?dataset=inventory')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode('utf-8')
+        # Reporte valorizado: columnas de costo/valor + fila de total.
+        self.assertIn('Costo unitario', body)
+        self.assertIn('Valor total', body)
+
+    def test_export_accepts_custom_date_range(self):
+        self._auth(self.admin)
+        resp = self.client.get(
+            '/api/v1/analytics/export/?dataset=sales&from=2020-01-01&to=2020-01-31'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('text/csv', resp['Content-Type'])

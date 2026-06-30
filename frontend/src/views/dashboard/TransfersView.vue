@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { Send, Plus, Trash2, Check, X, Store } from 'lucide-vue-next'
 import SearchSelect from '@/components/SearchSelect.vue'
 import LoadingState from '@/components/LoadingState.vue'
-import { warehousesApi, transfersApi } from '@/services/inventory'
+import { warehousesApi, transfersApi, stockLevelsApi } from '@/services/inventory'
 import { variantsApi } from '@/services/catalog'
 import { useAuthStore } from '@/stores/auth'
 import { confirmAction, toastSuccess, toastError } from '@/utils/notify'
@@ -21,6 +21,9 @@ const STATUS_OPTIONS = [
 
 const warehouses = ref([])
 const variantsRaw = ref([])
+// Existencias de la bodega ORIGEN seleccionada: { [variantId]: cantidad }.
+// Solo se puede transferir lo que el origen tiene (el backend también lo valida).
+const originStockMap = ref({})
 const transfers = ref([])
 const count = ref(0)
 const loading = ref(true)
@@ -38,23 +41,31 @@ const lines = ref([])
 // Jefe de punto sin bodega asignada: no puede transferir.
 const noWarehouse = computed(() => !isAdmin.value && !myWarehouseId.value)
 
-function variantOptionLabel(v) {
-  const opts = v.options_label || v.variant_label || ''
-  return `${v.sku}${opts ? ` · ${opts}` : ''} · stock ${v.stock}`
+// Existencia de la variante en la bodega origen elegida (no el total global).
+function originStock(variantId) {
+  return originStockMap.value[variantId] || 0
 }
 
+function variantOptionLabel(v) {
+  const opts = v.options_label || v.variant_label || ''
+  return `${v.sku}${opts ? ` · ${opts}` : ''} · stock ${originStock(v.id)}`
+}
+
+// Solo productos con alguna variante en existencia en la bodega origen.
 const products = computed(() => {
   const map = new Map()
   for (const v of variantsRaw.value) {
+    if (originStock(v.id) <= 0) continue
     if (!map.has(v.product)) map.set(v.product, { id: v.product, label: v.product_name })
   }
   return [...map.values()].sort((a, b) => a.label.localeCompare(b.label))
 })
 
+// Solo variantes del producto elegido con existencia en la bodega origen.
 const lineVariantOptions = computed(() =>
   line.value.product
     ? variantsRaw.value
-        .filter((v) => v.product === line.value.product)
+        .filter((v) => v.product === line.value.product && originStock(v.id) > 0)
         .map((v) => ({ id: v.id, label: variantOptionLabel(v) }))
     : []
 )
@@ -65,10 +76,23 @@ const destinationOptions = computed(() =>
 )
 
 watch(() => line.value.product, () => { line.value.variant = '' })
-// Si destino quedó igual a origen (cambio de origen), límpialo.
-watch(() => form.value.origin, () => {
+// Al cambiar la bodega origen: carga sus existencias y reinicia las líneas (lo
+// agregado pertenecía al origen anterior). También limpia el destino si quedó igual.
+watch(() => form.value.origin, (id) => {
   if (form.value.destination === form.value.origin) form.value.destination = ''
+  line.value = { product: '', variant: '', quantity: 1 }
+  lines.value = []
+  loadOriginStock(id)
 })
+
+async function loadOriginStock(originId) {
+  originStockMap.value = {}
+  if (!originId) return
+  const data = await stockLevelsApi.list({ warehouse: originId, page_size: 5000 })
+  const map = {}
+  for (const lvl of data.results) map[lvl.variant] = lvl.quantity
+  originStockMap.value = map
+}
 
 function variantInfo(id) {
   return variantsRaw.value.find((v) => v.id === id)
@@ -81,6 +105,10 @@ function addLine() {
   }
   if (lines.value.some((l) => l.variant === line.value.variant)) {
     return toastError('Esa variante ya está en la transferencia.')
+  }
+  const available = originStock(line.value.variant)
+  if (line.value.quantity > available) {
+    return toastError(`Solo hay ${available} unidad(es) en la bodega origen.`)
   }
   const v = variantInfo(line.value.variant)
   lines.value.push({
@@ -125,7 +153,7 @@ async function submit() {
     toastSuccess('Transferencia solicitada')
     form.value = { origin: isAdmin.value ? '' : myWarehouseId.value, destination: '', note: '' }
     lines.value = []
-    await Promise.all([loadTransfers(), loadVariants()])
+    await Promise.all([loadTransfers(), loadVariants(), loadOriginStock(form.value.origin)])
   } catch (e) {
     error.value = e.response?.data?.detail || 'No se pudo solicitar la transferencia.'
     toastError(error.value)
@@ -254,7 +282,8 @@ onMounted(async () => {
               :options="products"
               value-key="id"
               label-key="label"
-              placeholder="Busca el producto"
+              :disabled="!form.origin"
+              :placeholder="form.origin ? 'Busca el producto' : 'Primero elige la bodega origen'"
             />
             <SearchSelect
               v-model="line.variant"

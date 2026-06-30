@@ -520,8 +520,9 @@ onMounted(async () => {
 }
 .catalog-hero {
   background:
-    radial-gradient(700px 300px at 85% -40%, rgba(14, 110, 78, 0.08), transparent 60%),
-    var(--color-surface-alt);
+    radial-gradient(700px 300px at 85% -40%, rgba(var(--color-primary-rgb), 0.1), transparent 60%),
+    var(--color-hero);
+  color: var(--color-hero-ink);
   border-bottom: 1px solid var(--color-line);
   padding: 48px 0 44px;
   margin-bottom: 28px;
@@ -531,9 +532,10 @@ onMounted(async () => {
   font-weight: 600;
   font-size: clamp(1.9rem, 4vw, 2.6rem);
   letter-spacing: -0.015em;
+  color: var(--color-hero-ink);
 }
 .catalog-hero__sub {
-  color: var(--color-muted);
+  color: var(--color-hero-muted);
   margin-top: 6px;
 }
 

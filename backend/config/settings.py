@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -63,6 +64,7 @@ INSTALLED_APPS = [
     'inventory',
     'sales',
     'store',
+    'siteconfig',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -233,6 +235,8 @@ CSRF_TRUSTED_ORIGINS = [
 
 # URL del frontend (para construir los enlaces de los correos)
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+# URL pública del backend (sirve /media; se usa para incrustar el logo en correos).
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')
 
 # Correo electrónico
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
@@ -245,6 +249,13 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 # Si no hay credenciales SMTP configuradas, los correos salen por consola.
 if not EMAIL_HOST_USER:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Geocodificación (OpenStreetMap/Nominatim) para ubicar direcciones y bodegas y
+# rutear al punto más cercano. Best-effort: si está apagada o falla, el ruteo
+# cae al método por ciudad. Se apaga en las pruebas para no llamar a la red.
+GEOCODING_ENABLED = (
+    os.getenv('GEOCODING_ENABLED', 'True').lower() == 'true' and 'test' not in sys.argv
+)
 
 # Logging
 LOGGING = {

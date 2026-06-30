@@ -7,7 +7,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, generics, mixins, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -22,8 +22,10 @@ from catalog.models import (
     ProductVariant,
 )
 from inventory.models import Warehouse
+from geo.geocoding import geocode
 from django.shortcuts import get_object_or_404
 
+from sales.emails import send_receipt_email
 from sales.models import Sale, SaleItem, SaleStatus
 from sales.serializers import SaleSerializer
 
@@ -32,6 +34,7 @@ from .models import Address, CartItem, Order, OrderItem, SavedPaymentMethod, Wis
 from .serializers import (
     AddressSerializer,
     AvailabilityCheckSerializer,
+    FulfillmentOptionsSerializer,
     CartItemSerializer,
     CartItemWriteSerializer,
     CartMergeSerializer,
@@ -47,7 +50,16 @@ from .serializers import (
     WishlistMergeSerializer,
     WishlistWriteSerializer,
 )
-from .services import check_availability, advance_order, cancel_order
+from .services import (
+    advance_order,
+    allocate_pickup_split,
+    allocations_by_warehouse,
+    cancel_order,
+    check_availability,
+    delivery_available,
+    pickup_split_available,
+    pickup_warehouses,
+)
 
 STORE_TAG = ['Tienda']
 
@@ -111,6 +123,7 @@ def _product_queryset():
         .prefetch_related(
             'images',
             'attributes__values__images',
+            'attributes__definition__options',
             'variants__values__value__attribute',
         )
         .annotate(price=_price_expression(), sold=_sold_expression())
@@ -119,9 +132,10 @@ def _product_queryset():
 
 @extend_schema(tags=STORE_TAG, summary='Puntos / tiendas (público)')
 class StorePointListView(generics.ListAPIView):
-    """Puntos activos donde el comprador puede pedir o recoger."""
+    """Tiendas (bodegas) activas y visibles en la tienda pública: el comprador
+    puede recoger en ellas y verlas en la página de tiendas."""
 
-    queryset = Warehouse.objects.filter(is_active=True).order_by('name')
+    queryset = Warehouse.objects.filter(is_active=True, show_in_store=True).order_by('name')
     serializer_class = StorePointSerializer
     permission_classes = [AllowAny]
     pagination_class = None
@@ -337,6 +351,28 @@ class AddressViewSet(_OwnerScopedViewSet):
     queryset = Address.objects.all()
     serializer_class = AddressSerializer
 
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        self._geocode(serializer.instance)
+
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        self._geocode(serializer.instance)
+
+    def _geocode(self, address):
+        """Geocodifica la dirección (best-effort) para rutear al punto más cercano.
+        Si falla o está desactivado, la dirección queda sin coordenadas."""
+        parts = [
+            address.line1,
+            address.city.name if address.city_id else '',
+            address.department.name if address.department_id else '',
+            address.country.name if address.country_id else '',
+        ]
+        coords = geocode(', '.join(p for p in parts if p))
+        if coords:
+            address.latitude, address.longitude = coords
+            address.save(update_fields=['latitude', 'longitude', 'updated_at'])
+
 
 @extend_schema_view(
     list=extend_schema(tags=STORE_TAG, summary='Mis métodos de pago'),
@@ -510,6 +546,8 @@ class WishlistViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 _ORDER_QS = Order.objects.select_related('warehouse', 'user').prefetch_related(
     'items__variant__values__value__attribute',
     'items__variant__product__images',
+    'allocations__warehouse',
+    'allocations__variant__product',
 )
 
 
@@ -557,6 +595,46 @@ class OrderViewSet(
         )
         return Response({'results': result})
 
+    @extend_schema(tags=STORE_TAG, summary='Opciones de entrega del carrito')
+    @action(detail=False, methods=['post'], url_path='fulfillment-options')
+    def fulfillment_options(self, request):
+        """Para el checkout: si el carrito se puede ENVIAR a domicilio (alguna
+        tienda lo tiene completo) y las tiendas donde se puede RECOGER completo.
+        El comprador no elige de dónde se despacha un envío: lo decide el sistema.
+        """
+        serializer = FulfillmentOptionsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        items = serializer.validated_data['items']
+        ctx = self.get_serializer_context()
+        points = pickup_warehouses(items)
+
+        # Recoger repartido: solo se ofrece si ninguna tienda sola tiene todo
+        # pero combinándolas sí alcanza. Se entrega el desglose por tienda.
+        pickup_split = None
+        if not points and pickup_split_available(items):
+            allocations = allocate_pickup_split(items)
+            pickup_split = [
+                {
+                    'point': StorePointSerializer(group['warehouse'], context=ctx).data,
+                    'items': [
+                        {
+                            'variant': a['variant'].id,
+                            'name': a['variant'].product.name,
+                            'options': a['variant'].options_label,
+                            'quantity': a['quantity'],
+                        }
+                        for a in group['items']
+                    ],
+                }
+                for group in allocations_by_warehouse(allocations)
+            ]
+
+        return Response({
+            'delivery_available': delivery_available(items),
+            'pickup_points': StorePointSerializer(points, many=True, context=ctx).data,
+            'pickup_split': pickup_split,
+        })
+
     @extend_schema(tags=STORE_TAG, summary='Cancelar mi pedido')
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
@@ -587,17 +665,21 @@ class AccountPurchasesView(APIView):
                 'kind': 'order',
                 'id': o.id,
                 'number': o.number,
+                'code': o.code,
                 'date': o.created_at,
                 'total': o.total,
                 'total_items': o.total_items,
                 'status': o.status,
                 'status_display': o.get_status_display(),
             })
-        for s in Sale.objects.filter(customer=user).prefetch_related('items'):
+        # Solo ventas del POS (sin pedido): las ventas de pedidos entregados ya
+        # están representadas por su pedido, para no duplicar la compra.
+        for s in Sale.objects.filter(customer=user, order__isnull=True).prefetch_related('items'):
             items.append({
                 'kind': 'sale',
                 'id': s.id,
                 'number': s.number,
+                'code': s.code,
                 'date': s.created_at,
                 'total': s.total,
                 'total_items': s.total_items,
@@ -617,6 +699,24 @@ class AccountSaleDetailView(APIView):
     def get(self, request, pk):
         sale = get_object_or_404(Sale, pk=pk, customer=request.user)
         return Response(SaleSerializer(sale, context={'request': request}).data)
+
+
+@extend_schema(tags=STORE_TAG, summary='Reenviarme el recibo de mi compra (POS)')
+class AccountSaleReceiptView(APIView):
+    """El comprador se reenvía el recibo de su propia venta (a su correo o a otro)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        sale = get_object_or_404(Sale, pk=pk, customer=request.user)
+        to_email = (request.data.get('email') or request.user.email or '').strip()
+        if not to_email:
+            raise ValidationError({'email': 'No tienes un correo registrado. Indica uno.'})
+        try:
+            send_receipt_email(sale, to_email)
+        except Exception:
+            raise ValidationError('No se pudo enviar el correo. Intenta más tarde.')
+        return Response({'detail': f'Recibo enviado a {to_email}.'})
 
 
 @extend_schema_view(
@@ -644,7 +744,9 @@ class StaffOrderViewSet(
     def get_queryset(self):
         user = self.request.user
         if not getattr(user, 'is_admin', False):
-            return _ORDER_QS.filter(warehouse_id=user.warehouse_id)
+            # El personal ve los pedidos que su sede ayuda a surtir (tenga o no la
+            # bodega principal), por las asignaciones del reparto.
+            return _ORDER_QS.filter(allocations__warehouse_id=user.warehouse_id).distinct()
         return _ORDER_QS.all()
 
     @extend_schema(tags=STORE_TAG, summary='Avanzar el estado del pedido')

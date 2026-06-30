@@ -85,6 +85,12 @@ export const ordersApi = {
   sale(id) {
     return api.get(`/account/purchases/sale/${id}/`).then((r) => r.data)
   },
+  // El comprador se reenvía el recibo de su venta (a su correo o a otro).
+  resendSaleReceipt(id, email) {
+    return api
+      .post(`/account/purchases/sale/${id}/send-receipt/`, email ? { email } : {})
+      .then((r) => r.data)
+  },
   get(id) {
     return api.get(`/account/orders/${id}/`).then((r) => r.data)
   },
@@ -96,6 +102,10 @@ export const ordersApi = {
   },
   checkAvailability(payload) {
     return api.post('/account/orders/availability/', payload).then((r) => r.data)
+  },
+  // Opciones de entrega del carrito: ¿se puede enviar? ¿en qué tiendas se recoge?
+  fulfillmentOptions(payload) {
+    return api.post('/account/orders/fulfillment-options/', payload).then((r) => r.data)
   }
 }
 

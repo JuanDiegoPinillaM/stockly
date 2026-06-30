@@ -86,7 +86,7 @@ onMounted(load)
       <header class="page__head">
         <div>
           <div class="title-row">
-            <h1 class="page__title">Venta #{{ sale.number }}</h1>
+            <h1 class="page__title">Venta {{ sale.code }}</h1>
             <span class="badge" :class="sale.status === 'completada' ? 'badge--on' : 'badge--off'">{{ sale.status_display }}</span>
           </div>
           <p class="page__subtitle">{{ dt(sale.created_at) }} · {{ sale.warehouse_name }}<span v-if="sale.created_by_name"> · {{ sale.created_by_name }}</span></p>
@@ -142,9 +142,10 @@ onMounted(load)
           <div class="card-box">
             <h2 class="card-box__title">Resumen</h2>
             <div class="totals">
-              <div class="totals__row"><span>Subtotal</span><span>{{ money(sale.subtotal) }}</span></div>
-              <div class="totals__row"><span>IVA</span><span>{{ money(sale.tax_total) }}</span></div>
+              <div v-if="Number(sale.discount)" class="totals__row"><span>Bruto</span><span>{{ money(Number(sale.total) + Number(sale.discount)) }}</span></div>
               <div v-if="Number(sale.discount)" class="totals__row"><span>Descuento</span><span>-{{ money(sale.discount) }}</span></div>
+              <div class="totals__row"><span>Subtotal (sin IVA)</span><span>{{ money(sale.subtotal) }}</span></div>
+              <div class="totals__row"><span>IVA</span><span>{{ money(sale.tax_total) }}</span></div>
               <div class="totals__row totals__row--total"><span>Total</span><span>{{ money(sale.total) }}</span></div>
             </div>
           </div>

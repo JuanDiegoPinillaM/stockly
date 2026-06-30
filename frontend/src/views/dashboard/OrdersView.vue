@@ -113,7 +113,7 @@ onMounted(load)
         </thead>
         <tbody>
           <tr v-for="o in orders" :key="o.id" class="row--clickable" :class="{ 'row--off': o.status === 'cancelado' }" @click="open(o)">
-            <td class="strong">#{{ o.number }}</td>
+            <td class="strong">{{ o.code }}</td>
             <td class="nowrap">{{ dt(o.created_at) }}</td>
             <td>{{ o.customer_name || o.customer_email }}</td>
             <td>{{ o.warehouse_name }}</td>

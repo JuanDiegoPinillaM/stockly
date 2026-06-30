@@ -1,15 +1,19 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { ArrowLeft, Store, CreditCard, Receipt } from 'lucide-vue-next'
+import { ArrowLeft, Store, CreditCard, Receipt, Send } from 'lucide-vue-next'
 import { ordersApi } from '@/services/store'
+import { useAuthStore } from '@/stores/auth'
+import { toastSuccess, toastError } from '@/utils/notify'
 import LoadingState from '@/components/LoadingState.vue'
 import ErrorState from '@/components/ErrorState.vue'
 
 const route = useRoute()
+const auth = useAuthStore()
 const sale = ref(null)
 const loading = ref(true)
 const error = ref('')
+const sending = ref(false)
 
 function money(v) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0)
@@ -30,6 +34,19 @@ async function load() {
   }
 }
 
+async function resendReceipt() {
+  sending.value = true
+  try {
+    const res = await ordersApi.resendSaleReceipt(route.params.id)
+    toastSuccess(res.detail || 'Recibo enviado.')
+  } catch (e) {
+    const data = e.response?.data
+    toastError(data?.email?.[0] || data?.detail || 'No se pudo enviar el recibo.')
+  } finally {
+    sending.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -43,7 +60,7 @@ onMounted(load)
     <template v-else-if="sale">
       <header class="detail__head">
         <div>
-          <h1 class="detail__title">Compra #{{ sale.number }}</h1>
+          <h1 class="detail__title">Compra {{ sale.code }}</h1>
           <p class="detail__sub">{{ dt(sale.created_at) }} · Compra en tienda</p>
         </div>
         <span class="badge" :class="sale.status === 'completada' ? 'badge--on' : 'badge--off'">
@@ -92,9 +109,24 @@ onMounted(load)
             </div>
           </section>
 
-          <section v-if="sale.receipt_email" class="card">
+          <section class="card">
             <h2 class="card__title"><Receipt :size="17" /> Recibo</h2>
-            <p class="side__line side__line--muted">Enviado a {{ sale.receipt_email }}</p>
+            <p v-if="sale.receipt_email" class="side__line side__line--muted">
+              Último envío a {{ sale.receipt_email }}
+            </p>
+            <p v-else-if="auth.user?.email" class="side__line side__line--muted">
+              Te lo enviaremos a {{ auth.user.email }}
+            </p>
+            <p v-else class="side__line side__line--muted">
+              No tienes un correo registrado en tu cuenta.
+            </p>
+            <button
+              class="btn btn--primary receipt-btn"
+              :disabled="sending || !auth.user?.email"
+              @click="resendReceipt"
+            >
+              <Send :size="16" /> {{ sending ? 'Enviando…' : 'Reenviar recibo' }}
+            </button>
           </section>
         </aside>
       </div>
@@ -209,6 +241,11 @@ onMounted(load)
 }
 .side__line--muted {
   color: var(--color-muted);
+}
+.receipt-btn {
+  width: 100%;
+  margin-top: 12px;
+  gap: 8px;
 }
 .side__row {
   display: flex;

@@ -53,6 +53,12 @@ class CustomerViewSet(SoftDeleteModelViewSet):
             return CustomerDetailSerializer
         return CustomerSerializer
 
+    def perform_destroy(self, instance):
+        # El "Consumidor final" es un cliente del sistema: no se desactiva.
+        if getattr(instance, 'is_walk_in', False):
+            raise ValidationError('El cliente "Consumidor final" no se puede desactivar.')
+        super().perform_destroy(instance)
+
 
 @extend_schema_view(
     list=extend_schema(tags=SALES_TAG, summary='Historial de ventas'),

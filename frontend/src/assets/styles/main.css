@@ -3,25 +3,64 @@
    =========================================================== */
 
 :root {
-  /* Brand — Esmeralda + crema */
+  /* Brand — Esmeralda + crema.
+     NOTA: estos valores son los de fábrica. El módulo de Configuración del
+     ecommerce los sobreescribe en runtime inyectando variables en :root, por eso
+     todo el diseño debe usar SIEMPRE estas variables (nunca hex de marca sueltos).
+     Los *-rgb permiten usar el color de marca dentro de rgba() (gradientes). */
   --color-primary: #0e6e4e;
+  --color-primary-rgb: 14, 110, 78;
   --color-primary-dark: #0a5640;
   --color-primary-light: #16855f;
   --color-primary-soft: #e7f1ea;
 
   /* Accent — oro suave */
   --color-accent: #b8923a;
+  --color-accent-rgb: 184, 146, 58;
   --color-accent-dark: #9a7a2e;
   --color-accent-soft: #f4ebd6;
 
   /* Neutrals — cálidos */
   --color-ink: #14201a;
+  --color-ink-rgb: 20, 32, 25;
   --color-body: #46524b;
   --color-muted: #828d85;
   --color-line: #e8e2d7;
   --color-surface: #ffffff;
   --color-surface-alt: #faf7f0;
   --color-surface-dark: #0e1a14;
+
+  /* Superficies personalizables (navbar, footer, hero, fondo de página). Estos
+     valores por defecto reproducen el aspecto actual; el módulo de Personalización
+     los sobrescribe en runtime con texto auto-contrastado. */
+  --color-navbar: #faf7f0;
+  --color-navbar-rgb: 250, 247, 240;
+  --color-navbar-ink: #14201a;
+  --color-navbar-text: #46524b;
+  --color-navbar-muted: #828d85;
+  --color-navbar-line: rgba(20, 32, 25, 0.12);
+
+  --color-footer: #0e1a14;
+  --color-footer-ink: #f6f3ec;
+  --color-footer-text: #b9c4be;
+  --color-footer-muted: #94a39b;
+  --color-footer-line: rgba(246, 243, 236, 0.12);
+  --color-footer-field: rgba(246, 243, 236, 0.06);
+
+  --color-hero: #faf7f0;
+  --color-hero-rgb: 250, 247, 240;
+  --color-hero-ink: #14201a;
+  --color-hero-text: #46524b;
+  --color-hero-muted: #828d85;
+
+  --color-announce: #14201a;
+  --color-announce-ink: #f6f3ec;
+  --color-announce-text: #c3c8c2;
+
+  /* --color-page NO tiene default global a propósito: solo se define cuando el
+     admin personaliza el fondo. Sin personalizar, cada área usa su propio fondo
+     vía respaldo: el ecommerce var(--color-page, var(--color-surface)) y el
+     dashboard var(--color-page, var(--color-surface-alt)). */
 
   /* Estados */
   --color-success: #0e6e4e;
@@ -40,10 +79,10 @@
   --radius-full: 999px;
 
   /* Shadows — cálidas y suaves */
-  --shadow-sm: 0 1px 2px rgba(20, 32, 25, 0.05);
-  --shadow-md: 0 10px 30px rgba(20, 32, 25, 0.07);
-  --shadow-lg: 0 30px 60px rgba(20, 32, 25, 0.1);
-  --shadow-primary: 0 14px 34px rgba(14, 110, 78, 0.24);
+  --shadow-sm: 0 1px 2px rgba(var(--color-ink-rgb), 0.05);
+  --shadow-md: 0 10px 30px rgba(var(--color-ink-rgb), 0.07);
+  --shadow-lg: 0 30px 60px rgba(var(--color-ink-rgb), 0.1);
+  --shadow-primary: 0 14px 34px rgba(var(--color-primary-rgb), 0.24);
 
   /* Layout */
   --container: 1200px;
@@ -220,7 +259,7 @@ h4 {
 .btn--accent {
   background: var(--color-accent);
   color: #fff;
-  box-shadow: 0 14px 30px rgba(184, 146, 58, 0.26);
+  box-shadow: 0 14px 30px rgba(var(--color-accent-rgb), 0.26);
 }
 
 .btn--accent:hover {

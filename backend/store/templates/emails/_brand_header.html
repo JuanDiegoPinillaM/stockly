@@ -1,0 +1,25 @@
+{% comment %}Cabecera de marca para correos. Espera en el contexto: business
+(con primary/accent/logo_url/name/nit), doc_label y doc_number.{% endcomment %}
+<tr>
+  <td style="background:{{ business.primary }};padding:24px 32px;border-bottom:3px solid {{ business.accent }};">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="vertical-align:middle;">
+          {% if business.logo_url %}
+            <span style="display:inline-block;background:#ffffff;border-radius:8px;padding:6px 10px;">
+              <img src="{{ business.logo_url }}" alt="{{ business.name }}" style="display:block;max-height:34px;max-width:170px;" />
+            </span>
+            {% if business.nit %}<div style="font-size:11px;color:rgba(255,255,255,.72);margin-top:7px;">NIT {{ business.nit }}</div>{% endif %}
+          {% else %}
+            <div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-.3px;">{{ business.name }}</div>
+            {% if business.nit %}<div style="font-size:12px;color:rgba(255,255,255,.72);margin-top:4px;">NIT {{ business.nit }}</div>{% endif %}
+          {% endif %}
+        </td>
+        <td style="vertical-align:middle;text-align:right;">
+          <div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.72);">{{ doc_label }}</div>
+          <div style="font-size:20px;font-weight:700;color:#ffffff;margin-top:2px;">N.º {{ doc_number }}</div>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>

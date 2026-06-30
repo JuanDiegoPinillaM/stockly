@@ -107,9 +107,10 @@ const stats = [
 /* Hero */
 .about-hero {
   background:
-    radial-gradient(800px 360px at 88% -30%, rgba(14, 110, 78, 0.08), transparent 60%),
-    radial-gradient(600px 360px at 0% 120%, rgba(184, 146, 58, 0.08), transparent 55%),
-    var(--color-surface-alt);
+    radial-gradient(800px 360px at 88% -30%, rgba(var(--color-primary-rgb), 0.1), transparent 60%),
+    radial-gradient(600px 360px at 0% 120%, rgba(var(--color-accent-rgb), 0.1), transparent 55%),
+    var(--color-hero);
+  color: var(--color-hero-ink);
   border-bottom: 1px solid var(--color-line);
   padding: 72px 0;
   text-align: center;
@@ -121,12 +122,13 @@ const stats = [
   line-height: 1.08;
   letter-spacing: -0.02em;
   margin-bottom: 18px;
+  color: var(--color-hero-ink);
 }
 .about-hero__text {
   max-width: 600px;
   margin: 0 auto;
   font-size: 1.1rem;
-  color: var(--color-body);
+  color: var(--color-hero-text);
 }
 
 /* Historia */
@@ -151,7 +153,7 @@ const stats = [
 }
 .story__card {
   position: relative;
-  background: linear-gradient(155deg, var(--color-primary) 0%, #0a4d38 100%);
+  background: linear-gradient(155deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
   color: #fff;
   border-radius: var(--radius-xl);
   padding: 36px 32px;
@@ -275,8 +277,8 @@ const stats = [
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(600px 300px at 80% 0%, rgba(14, 110, 78, 0.5), transparent 60%),
-    radial-gradient(500px 300px at 10% 100%, rgba(184, 146, 58, 0.22), transparent 55%);
+    radial-gradient(600px 300px at 80% 0%, rgba(var(--color-primary-rgb), 0.5), transparent 60%),
+    radial-gradient(500px 300px at 10% 100%, rgba(var(--color-accent-rgb), 0.22), transparent 55%);
 }
 .cta__content {
   position: relative;

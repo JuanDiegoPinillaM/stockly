@@ -105,7 +105,7 @@ onMounted(load)
         </thead>
         <tbody>
           <tr v-for="s in sales" :key="s.id" class="row--clickable" :class="{ 'row--void': s.status === 'anulada' }" @click="openSale(s)">
-            <td class="strong">#{{ s.number }}</td>
+            <td class="strong">{{ s.code }}</td>
             <td class="nowrap">{{ dt(s.created_at) }}</td>
             <td>{{ s.customer_name || 'Mostrador' }}</td>
             <td class="num">{{ s.total_items }}</td>

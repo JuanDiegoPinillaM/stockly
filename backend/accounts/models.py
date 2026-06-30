@@ -94,6 +94,10 @@ class User(AbstractUser):
         null=True,
     )
     is_email_verified = models.BooleanField('correo verificado', default=False)
+    # Cliente genérico de mostrador ("Consumidor final"): para ventas en las que
+    # el comprador no quiere registrarse ni dar sus datos. Cumple la regla de que
+    # toda venta tenga cliente. Hay exactamente uno y no se puede borrar.
+    is_walk_in = models.BooleanField('consumidor final (mostrador)', default=False)
 
     objects = CustomUserManager()
 

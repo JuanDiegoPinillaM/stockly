@@ -1,9 +1,20 @@
 <script setup>
-import { Mail, Phone, MapPin, Instagram, Facebook, Send } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { Mail, Phone, MapPin, Building2, Send } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 import BrandLogo from '@/components/BrandLogo.vue'
+import { useConfigStore } from '@/stores/config'
+import { socialIcon, socialLabel } from '@/utils/socials'
 
 const year = new Date().getFullYear()
+
+const configStore = useConfigStore()
+const cfg = computed(() => configStore.config || {})
+const name = computed(() => cfg.value.business_name || 'Stockly')
+const tagline = computed(
+  () => cfg.value.tagline ||
+    'Productos seleccionados con calidad y una experiencia de compra simple, cercana y confiable.'
+)
 
 const columns = [
   {
@@ -11,6 +22,7 @@ const columns = [
     links: [
       { label: 'Inicio', to: '/' },
       { label: 'Productos', to: '/productos' },
+      { label: 'Tiendas', to: '/tiendas' },
       { label: 'Quiénes somos', to: '/quienes-somos' }
     ]
   },
@@ -24,10 +36,12 @@ const columns = [
   }
 ]
 
-const socials = [
-  { icon: Instagram, label: 'Instagram', href: '#' },
-  { icon: Facebook, label: 'Facebook', href: '#' }
-]
+// Redes configuradas (cada una con su icono y enlace).
+const socials = computed(() =>
+  (cfg.value.socials || [])
+    .filter((s) => s.url)
+    .map((s) => ({ icon: socialIcon(s.network), label: socialLabel(s.network), href: s.url }))
+)
 </script>
 
 <template>
@@ -49,15 +63,13 @@ const socials = [
 
       <div class="footer__top">
         <div class="footer__brand">
-          <BrandLogo light />
-          <p class="footer__tagline">
-            Productos seleccionados con calidad y una experiencia de compra simple,
-            cercana y confiable.
-          </p>
+          <BrandLogo />
+          <p class="footer__tagline">{{ tagline }}</p>
           <ul class="footer__contact">
-            <li><Mail :size="16" /> hola@stockly.com</li>
-            <li><Phone :size="16" /> +57 300 123 4567</li>
-            <li><MapPin :size="16" /> Medellín, Colombia</li>
+            <li v-if="cfg.contact_email"><Mail :size="16" /> {{ cfg.contact_email }}</li>
+            <li v-if="cfg.contact_phone"><Phone :size="16" /> {{ cfg.contact_phone }}</li>
+            <li v-if="cfg.full_address"><MapPin :size="16" /> {{ cfg.full_address }}</li>
+            <li v-if="cfg.nit"><Building2 :size="16" /> NIT {{ cfg.nit }}</li>
           </ul>
         </div>
 
@@ -70,13 +82,15 @@ const socials = [
               </li>
             </ul>
           </div>
-          <div class="footer__col">
+          <div v-if="socials.length" class="footer__col">
             <h4 class="footer__col-title">Síguenos</h4>
             <div class="footer__socials">
               <a
                 v-for="social in socials"
                 :key="social.label"
                 :href="social.href"
+                target="_blank"
+                rel="noopener"
                 class="footer__social"
                 :aria-label="social.label"
               >
@@ -88,7 +102,7 @@ const socials = [
       </div>
 
       <div class="footer__bottom">
-        <p class="footer__copy">© {{ year }} Stockly. Todos los derechos reservados.</p>
+        <p class="footer__copy">© {{ year }} {{ name }}. {{ cfg.footer_note || 'Todos los derechos reservados.' }}</p>
         <div class="footer__legal">
           <a href="#">Términos</a>
           <a href="#">Privacidad</a>
@@ -101,10 +115,14 @@ const socials = [
 
 <style scoped>
 .footer {
-  background: var(--color-surface-dark);
-  color: #b9c4be;
+  background: var(--color-footer);
+  color: var(--color-footer-text);
   padding: 0 0 32px;
   border-top: 3px solid var(--color-accent);
+}
+/* El nombre/marca del footer toma el contraste del fondo elegido. */
+.footer__brand {
+  color: var(--color-footer-ink);
 }
 
 /* Boletín */
@@ -115,17 +133,17 @@ const socials = [
   gap: 32px;
   flex-wrap: wrap;
   padding: 40px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-footer-line);
 }
 .footer__news-title {
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 1.5rem;
-  color: #fff;
+  color: var(--color-footer-ink);
   margin-bottom: 4px;
 }
 .footer__news-text p {
-  color: #94a39b;
+  color: var(--color-footer-muted);
   font-size: 0.92rem;
 }
 .footer__news-form {
@@ -139,14 +157,14 @@ const socials = [
   flex: 1;
   padding: 13px 18px;
   border-radius: var(--radius-full);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
+  border: 1px solid var(--color-footer-line);
+  background: var(--color-footer-field);
+  color: var(--color-footer-ink);
   font-family: inherit;
   font-size: 0.92rem;
 }
 .footer__news-form input::placeholder {
-  color: #7e8c84;
+  color: var(--color-footer-muted);
 }
 .footer__news-form input:focus {
   outline: none;
@@ -158,13 +176,13 @@ const socials = [
   grid-template-columns: 1.5fr 2fr;
   gap: 56px;
   padding: 52px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-footer-line);
 }
 
 .footer__tagline {
   margin: 20px 0 24px;
   max-width: 340px;
-  color: #94a39b;
+  color: var(--color-footer-muted);
   font-size: 0.94rem;
   line-height: 1.7;
 }
@@ -180,7 +198,7 @@ const socials = [
   align-items: center;
   gap: 10px;
   font-size: 0.9rem;
-  color: #b9c4be;
+  color: var(--color-footer-text);
 }
 
 .footer__contact svg {
@@ -194,7 +212,7 @@ const socials = [
 }
 
 .footer__col-title {
-  color: #fff;
+  color: var(--color-footer-ink);
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -207,13 +225,13 @@ const socials = [
 }
 
 .footer__link {
-  color: #94a39b;
+  color: var(--color-footer-muted);
   font-size: 0.92rem;
   transition: color 0.18s ease;
 }
 
 .footer__link:hover {
-  color: #fff;
+  color: var(--color-footer-ink);
 }
 
 .footer__bottom {
@@ -227,7 +245,7 @@ const socials = [
 
 .footer__copy {
   font-size: 0.86rem;
-  color: #6e7d75;
+  color: var(--color-footer-muted);
 }
 
 .footer__legal {
@@ -237,12 +255,12 @@ const socials = [
 
 .footer__legal a {
   font-size: 0.86rem;
-  color: #94a39b;
+  color: var(--color-footer-muted);
   transition: color 0.18s ease;
 }
 
 .footer__legal a:hover {
-  color: #fff;
+  color: var(--color-footer-ink);
 }
 
 .footer__socials {
@@ -257,8 +275,8 @@ const socials = [
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
-  color: #cbd5cf;
+  background: var(--color-footer-field);
+  color: var(--color-footer-text);
   transition:
     background 0.18s ease,
     color 0.18s ease,

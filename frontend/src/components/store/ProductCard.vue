@@ -184,7 +184,7 @@ const isRange = computed(
   color: #fff;
 }
 .badge--out {
-  background: rgba(20, 32, 25, 0.82);
+  background: rgba(var(--color-ink-rgb), 0.82);
   color: #fff;
 }
 

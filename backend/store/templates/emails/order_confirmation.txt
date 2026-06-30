@@ -1,4 +1,4 @@
-{{ business }} — Confirmación de pedido
+{{ business.name }} — Confirmación de pedido
 Pedido #{{ order.number }}
 Fecha: {{ order.created_at|date:"d/m/Y H:i" }}
 Estado: {{ order.get_status_display }}
@@ -16,3 +16,4 @@ Entrega: {{ order.get_fulfillment_display }}
 {% endif %}Pago: {{ order.get_payment_method_display }}{% if order.is_paid %} (pagado){% else %} (pendiente){% endif %}
 
 ¡Gracias por tu compra! Te avisaremos cuando tu pedido avance.
+{{ business.name }}{% if business.email %} · {{ business.email }}{% endif %}

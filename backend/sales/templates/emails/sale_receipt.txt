@@ -19,10 +19,11 @@ PRODUCTOS
 {% for item in items %}{{ item.quantity }} x {{ item.description }}{% if item.sku %} ({{ item.sku }}){% endif %}
    {{ item.unit_price }} c/u{% if item.tax_rate %} · IVA {{ item.tax_rate }}%{% endif %}   =  {{ item.line_total }}
 {% endfor %}--------------------------------------------------
-Subtotal:  {{ totals.subtotal }}
+{% if totals.has_discount %}Bruto:     {{ totals.gross }}
+Descuento: -{{ totals.discount }}
+{% endif %}Subtotal (sin IVA):  {{ totals.subtotal }}
 IVA:       {{ totals.tax }}
-{% if totals.has_discount %}Descuento: -{{ totals.discount }}
-{% endif %}TOTAL:     {{ totals.total }}
+TOTAL:     {{ totals.total }}
 --------------------------------------------------
 FORMA DE PAGO
 {% for p in payments %}{{ p.method }}: {{ p.amount }}

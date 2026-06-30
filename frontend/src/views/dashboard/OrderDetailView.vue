@@ -27,6 +27,17 @@ const ADVANCE_LABEL = {
 }
 const advanceLabel = computed(() => ADVANCE_LABEL[order.value?.status] || '')
 
+// Reparto del pedido por sede (fulfillment dividido).
+const pickupGroups = computed(() => {
+  const map = new Map()
+  for (const a of order.value?.allocations || []) {
+    if (!map.has(a.warehouse)) map.set(a.warehouse, { name: a.warehouse_name, items: [] })
+    map.get(a.warehouse).items.push(a)
+  }
+  return [...map.values()]
+})
+const isSplit = computed(() => pickupGroups.value.length > 1)
+
 function money(v) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0)
 }
@@ -83,7 +94,7 @@ onMounted(load)
     <template v-else-if="order">
       <header class="head">
         <div class="head__left">
-          <h1 class="head__title">Pedido #{{ order.number }}</h1>
+          <h1 class="head__title">Pedido {{ order.code }}</h1>
           <span class="badge" :class="STATUS_CLASS[order.status]">{{ order.status_display }}</span>
         </div>
         <div v-if="order.is_open" class="head__actions">
@@ -95,7 +106,13 @@ onMounted(load)
           </button>
         </div>
       </header>
-      <p class="head__date">Realizado el {{ dt(order.created_at) }}</p>
+      <p class="head__date">
+        Realizado el {{ dt(order.created_at) }}
+        <span v-if="order.sale_code" class="head__sale">
+          · Generó la venta
+          <RouterLink :to="{ name: 'sale-detail', params: { id: order.sale_id } }">{{ order.sale_code }}</RouterLink>
+        </span>
+      </p>
 
       <div class="grid">
         <!-- Productos -->
@@ -147,7 +164,20 @@ onMounted(load)
               <component :is="order.fulfillment === 'recoge' ? Store : MapPin" :size="16" />
               {{ order.fulfillment_display }}
             </h2>
-            <p class="side__line">Punto: <strong>{{ order.warehouse_name }}</strong></p>
+            <p class="side__line">
+              Punto principal: <strong>{{ order.warehouse_name }}</strong>
+            </p>
+            <div v-if="isSplit" class="alloc">
+              <p class="side__line side__line--muted">Se surte desde varias sedes:</p>
+              <div v-for="g in pickupGroups" :key="g.name" class="alloc__store">
+                <p class="side__line side__line--strong">{{ g.name }}</p>
+                <ul class="alloc__items">
+                  <li v-for="it in g.items" :key="it.id">
+                    {{ it.quantity }}× {{ it.description }} <small v-if="it.options">{{ it.options }}</small>
+                  </li>
+                </ul>
+              </div>
+            </div>
             <template v-if="order.fulfillment === 'envio'">
               <p class="side__line side__line--strong" style="margin-top: 8px">{{ order.ship_recipient }}</p>
               <p class="side__line">{{ order.ship_line1 }}</p>
@@ -218,6 +248,14 @@ onMounted(load)
   color: var(--color-muted);
   font-size: 0.9rem;
   margin: 4px 0 22px;
+}
+.head__sale a {
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.head__sale a:hover {
+  text-decoration: underline;
 }
 .grid {
   display: grid;
@@ -315,6 +353,25 @@ onMounted(load)
   color: var(--color-ink);
 }
 .side__line--muted {
+  color: var(--color-muted);
+}
+.alloc {
+  margin-top: 8px;
+}
+.alloc__store {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-line);
+}
+.alloc__items {
+  margin: 3px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.84rem;
+  color: var(--color-body);
+}
+.alloc__items small {
   color: var(--color-muted);
 }
 .cust-link {

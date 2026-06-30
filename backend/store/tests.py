@@ -17,11 +17,11 @@ from catalog.models import (
     Subcategory,
     VariantValue,
 )
-from geo.models import Country
-from inventory.models import MovementType, StockLevel, Warehouse
+from geo.models import City, Country, Department
+from inventory.models import MovementType, StockLevel, StockMovement, Warehouse
 from inventory.services import record_movement
-from sales.models import Sale, SaleItem, SaleStatus
-from store.models import Order
+from sales.models import Sale, SaleChannel, SaleItem, SaleStatus
+from store.models import Address, Order
 
 User = get_user_model()
 
@@ -537,6 +537,22 @@ class OrderTests(APITestCase):
         level = StockLevel.objects.get(variant=self.variant, warehouse=self.warehouse)
         self.assertEqual(level.quantity, 8)
 
+    def test_order_confirmation_email_uses_configured_business_name(self):
+        from django.core import mail
+
+        from siteconfig.models import SiteConfig
+        c = SiteConfig.load()
+        c.business_name = 'Mi Tienda Test'
+        c.save()
+        self._auth(self.buyer)
+        mail.outbox = []
+        resp = self.client.post('/api/v1/account/orders/', self._order_payload(1), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertTrue(mail.outbox, 'No se envió el correo de confirmación')
+        msg = mail.outbox[0]
+        self.assertIn('Mi Tienda Test', msg.subject)
+        self.assertIn('Mi Tienda Test', msg.body)
+
     def test_delivery_requires_address(self):
         self._auth(self.buyer)
         payload = self._order_payload()
@@ -595,6 +611,29 @@ class OrderTests(APITestCase):
         resp = self.client.post(f'/api/v1/orders/{order["id"]}/advance/', format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_advance_emails_buyer_on_each_status(self):
+        from django.core import mail
+        self._auth(self.buyer)
+        order = self.client.post('/api/v1/account/orders/', self._order_payload(1), format='json').data
+        self._auth(self.admin)
+        for expected in ['confirmado', 'enviado', 'entregado']:
+            mail.outbox = []
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(f'/api/v1/orders/{order["id"]}/advance/', format='json')
+            self.assertTrue(mail.outbox, f'No se envió correo al pasar a {expected}')
+            # El cuerpo incluye "Estado: <display>" (p. ej. "Enviado").
+            self.assertIn(expected, mail.outbox[0].body.lower())
+
+    def test_cancel_emails_buyer(self):
+        from django.core import mail
+        self._auth(self.buyer)
+        order = self.client.post('/api/v1/account/orders/', self._order_payload(1), format='json').data
+        mail.outbox = []
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(f'/api/v1/account/orders/{order["id"]}/cancel/', format='json')
+        self.assertTrue(mail.outbox, 'No se envió correo al cancelar')
+        self.assertIn('cancelado', mail.outbox[0].body.lower())
+
     def test_buyer_cannot_cancel_after_confirmed(self):
         self._auth(self.buyer)
         order = self.client.post('/api/v1/account/orders/', self._order_payload(1), format='json').data
@@ -603,3 +642,246 @@ class OrderTests(APITestCase):
         self._auth(self.buyer)
         resp = self.client.post(f'/api/v1/account/orders/{order["id"]}/cancel/', format='json')
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def _deliver(self, order_id):
+        """Avanza un pedido hasta entregado (como personal)."""
+        self._auth(self.admin)
+        for _ in range(3):  # confirmado → enviado → entregado
+            self.client.post(f'/api/v1/orders/{order_id}/advance/', format='json')
+
+    def test_delivered_order_culminates_in_sale(self):
+        # Un pedido entregado genera su venta (canal online), enlazada y con los
+        # mismos totales y líneas. El pedido expone el código de su venta.
+        self._auth(self.buyer)
+        order = self.client.post('/api/v1/account/orders/', self._order_payload(2), format='json').data
+        self.assertTrue(order['code'].startswith('P-'))
+        self.assertIsNone(order['sale_code'])
+
+        self._deliver(order['id'])
+        resp = self.client.get(f'/api/v1/orders/{order["id"]}/')  # como admin
+
+        sale = Sale.objects.get(order_id=order['id'])
+        self.assertEqual(sale.channel, SaleChannel.ONLINE)
+        self.assertEqual(sale.status, SaleStatus.COMPLETED)
+        self.assertEqual(sale.customer_id, self.buyer.id)
+        self.assertEqual(sale.total, Decimal('100000.00'))
+        self.assertEqual(sale.total_items, 2)
+        self.assertTrue(sale.code.startswith('V-'))
+        # La venta lleva la fecha del pedido (evento económico), no la de entrega.
+        self.assertEqual(sale.created_at, Order.objects.get(pk=order['id']).created_at)
+        # El pedido apunta a su venta.
+        self.assertEqual(resp.data['sale_code'], sale.code)
+
+    def test_delivery_does_not_double_deduct_stock(self):
+        # El pedido descuenta al crearse; entregarlo NO vuelve a mover inventario.
+        self._auth(self.buyer)
+        order = self.client.post('/api/v1/account/orders/', self._order_payload(2), format='json').data
+        self._deliver(order['id'])
+        level = StockLevel.objects.get(variant=self.variant, warehouse=self.warehouse)
+        self.assertEqual(level.quantity, 8)  # 10 − 2, sin doble descuento
+        exits = StockMovement.objects.filter(
+            variant=self.variant, type=MovementType.EXIT
+        ).count()
+        self.assertEqual(exits, 1)  # una sola salida (la del pedido)
+
+    def test_delivered_order_not_duplicated_in_purchases(self):
+        # En "Mis compras" el pedido entregado aparece UNA vez (como pedido), no
+        # también como su venta online.
+        self._auth(self.buyer)
+        order = self.client.post('/api/v1/account/orders/', self._order_payload(1), format='json').data
+        self._deliver(order['id'])
+        self._auth(self.buyer)
+        rows = self.client.get('/api/v1/account/purchases/').data
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['kind'], 'order')
+        self.assertEqual(rows[0]['code'], order['code'])
+
+    def test_sale_number_is_shared_across_channels(self):
+        # POS y pedidos entregados comparten la secuencia de Venta: sin choques.
+        self._auth(self.buyer)
+        order = self.client.post('/api/v1/account/orders/', self._order_payload(1), format='json').data
+        self._deliver(order['id'])
+        sale = Sale.objects.get(order_id=order['id'])
+        self.assertEqual(Sale.objects.filter(number=sale.number).count(), 1)
+
+
+class OrderRoutingTests(APITestCase):
+    """Punto 3: el sistema decide la bodega del envío (cercanía + existencia) y
+    para recoger solo se ofrecen tiendas con el pedido completo."""
+
+    def setUp(self):
+        cache.clear()
+        self.buyer = User.objects.create_user(
+            email='ana@test.com', password='Stockly2026',
+            first_name='Ana', role=User.Role.BUYER, is_email_verified=True,
+        )
+        # La data geo (DIVIPOLA) viene sembrada por migración; usamos nombres de
+        # test propios para no chocar con las ciudades reales.
+        co, _ = Country.objects.get_or_create(name='Colombia', defaults={'code': 'CO'})
+        valle = Department.objects.create(country=co, name='Depto Norte Test')
+        cund = Department.objects.create(country=co, name='Depto Sur Test')
+        self.cali = City.objects.create(department=valle, name='Ciudad A Test')
+        self.bogota = City.objects.create(department=cund, name='Ciudad B Test')
+
+        self.wh_cali = Warehouse.objects.create(name='Tienda Cali', city=self.cali)
+        self.wh_bogota = Warehouse.objects.create(name='Tienda Bogotá', city=self.bogota)
+
+        cat = Category.objects.create(name='Ropa')
+        sub = Subcategory.objects.create(category=cat, name='Camisetas')
+        prod = Product.objects.create(name='Camiseta', subcategory=sub, tax_rate=19)
+        self.variant = ProductVariant.objects.create(
+            product=prod, sku='C-1', sale_price=Decimal('50000'), cost_price=Decimal('20000'),
+        )
+        # Cali con 5, Bogotá con 10.
+        record_movement(variant=self.variant, warehouse=self.wh_cali,
+                        type=MovementType.ENTRY, quantity=5, unit_cost=Decimal('20000'))
+        record_movement(variant=self.variant, warehouse=self.wh_bogota,
+                        type=MovementType.ENTRY, quantity=10, unit_cost=Decimal('20000'))
+
+        self.addr_cali = Address.objects.create(
+            user=self.buyer, recipient='Ana', line1='Calle 1', phone='3001112233',
+            country=co, department=valle, city=self.cali,
+        )
+
+    def _auth(self, user):
+        resp = self.client.post(
+            '/api/v1/auth/login/', {'email': user.email, 'password': 'Stockly2026'}, format='json',
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {resp.data["access"]}')
+
+    def test_delivery_routes_to_nearest_store_with_stock(self):
+        # Dirección en Cali → debe despachar desde Tienda Cali (misma ciudad),
+        # aunque Bogotá tenga más existencia. El cliente NO envía bodega.
+        self._auth(self.buyer)
+        resp = self.client.post('/api/v1/account/orders/', {
+            'fulfillment': 'envio', 'payment_method': 'tarjeta',
+            'address': self.addr_cali.id,
+            'items': [{'variant': self.variant.id, 'quantity': 2}],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data['warehouse'], self.wh_cali.id)
+        self.assertEqual(resp.data['warehouse_name'], 'Tienda Cali')
+
+    def test_delivery_splits_across_stores_when_one_is_not_enough(self):
+        # Pido 8: Cali (cercana) tiene 5 y Bogotá 10 → se reparte 5+3 entre sedes,
+        # no se pierde la venta. La principal es la que más aporta (Cali).
+        self._auth(self.buyer)
+        resp = self.client.post('/api/v1/account/orders/', {
+            'fulfillment': 'envio', 'payment_method': 'tarjeta',
+            'address': self.addr_cali.id,
+            'items': [{'variant': self.variant.id, 'quantity': 8}],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        allocs = {a['warehouse']: a['quantity'] for a in resp.data['allocations']}
+        self.assertEqual(allocs, {self.wh_cali.id: 5, self.wh_bogota.id: 3})
+        self.assertEqual(resp.data['warehouse'], self.wh_cali.id)  # principal = más aporta
+        # El inventario bajó en ambas sedes.
+        self.assertEqual(StockLevel.objects.get(variant=self.variant, warehouse=self.wh_cali).quantity, 0)
+        self.assertEqual(StockLevel.objects.get(variant=self.variant, warehouse=self.wh_bogota).quantity, 7)
+
+    def test_delivery_blocked_only_when_total_stock_insufficient(self):
+        # 20 unidades: ni sumando todas (15) alcanza → recién ahí se bloquea.
+        self._auth(self.buyer)
+        resp = self.client.post('/api/v1/account/orders/', {
+            'fulfillment': 'envio', 'payment_method': 'tarjeta',
+            'address': self.addr_cali.id,
+            'items': [{'variant': self.variant.id, 'quantity': 20}],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_split_delivery_cancellation_returns_stock_to_each_store(self):
+        self._auth(self.buyer)
+        order = self.client.post('/api/v1/account/orders/', {
+            'fulfillment': 'envio', 'payment_method': 'tarjeta',
+            'address': self.addr_cali.id,
+            'items': [{'variant': self.variant.id, 'quantity': 8}],
+        }, format='json').data
+        self.client.post(f'/api/v1/account/orders/{order["id"]}/cancel/', format='json')
+        self.assertEqual(StockLevel.objects.get(variant=self.variant, warehouse=self.wh_cali).quantity, 5)
+        self.assertEqual(StockLevel.objects.get(variant=self.variant, warehouse=self.wh_bogota).quantity, 10)
+
+    def test_pickup_split_offered_and_creates_multi_store_order(self):
+        # Pido 13: ninguna sola tienda lo tiene (Bogotá 10, Cali 5), pero juntas sí.
+        self._auth(self.buyer)
+        opts = self.client.post('/api/v1/account/orders/fulfillment-options/', {
+            'items': [{'variant': self.variant.id, 'quantity': 13}],
+        }, format='json').data
+        self.assertEqual(opts['pickup_points'], [])  # ninguna sola
+        self.assertIsNotNone(opts['pickup_split'])  # pero sí repartido
+        # Crea el pedido repartido para recoger.
+        resp = self.client.post('/api/v1/account/orders/', {
+            'fulfillment': 'recoge', 'pickup_split': True, 'payment_method': 'efectivo',
+            'items': [{'variant': self.variant.id, 'quantity': 13}],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        allocs = {a['warehouse']: a['quantity'] for a in resp.data['allocations']}
+        self.assertEqual(allocs, {self.wh_bogota.id: 10, self.wh_cali.id: 3})
+
+    def test_buyer_cannot_force_delivery_warehouse(self):
+        # Aunque el cliente mande una bodega, en envío manda el ruteo.
+        self._auth(self.buyer)
+        resp = self.client.post('/api/v1/account/orders/', {
+            'fulfillment': 'envio', 'payment_method': 'tarjeta',
+            'address': self.addr_cali.id, 'warehouse': self.wh_bogota.id,
+            'items': [{'variant': self.variant.id, 'quantity': 2}],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data['warehouse'], self.wh_cali.id)  # ruteo, no lo del cliente
+
+    def test_pickup_options_lists_only_stores_with_full_order(self):
+        self._auth(self.buyer)
+        resp = self.client.post('/api/v1/account/orders/fulfillment-options/', {
+            'items': [{'variant': self.variant.id, 'quantity': 8}],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(resp.data['delivery_available'])
+        # Solo Bogotá tiene 8+; Cali (5) queda fuera.
+        names = [p['name'] for p in resp.data['pickup_points']]
+        self.assertEqual(names, ['Tienda Bogotá'])
+
+    def test_pickup_rejects_store_without_full_stock(self):
+        self._auth(self.buyer)
+        resp = self.client.post('/api/v1/account/orders/', {
+            'fulfillment': 'recoge', 'payment_method': 'efectivo',
+            'warehouse': self.wh_cali.id,  # Cali solo tiene 5
+            'items': [{'variant': self.variant.id, 'quantity': 8}],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('warehouse', resp.data.get('errors', {}))
+
+    def test_pickup_succeeds_at_store_with_stock(self):
+        self._auth(self.buyer)
+        resp = self.client.post('/api/v1/account/orders/', {
+            'fulfillment': 'recoge', 'payment_method': 'efectivo',
+            'warehouse': self.wh_bogota.id,
+            'items': [{'variant': self.variant.id, 'quantity': 8}],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data['warehouse'], self.wh_bogota.id)
+
+
+class StoreLocationsTests(APITestCase):
+    """Página pública de tiendas: lista bodegas visibles con sus datos."""
+
+    def setUp(self):
+        cache.clear()
+        self.visible = Warehouse.objects.create(
+            name='Tienda Centro', address='Cra 1 #2-3', show_in_store=True,
+            phone='+57 300 111 2233', email='centro@negocio.com',
+            hours='Lun a Sáb 9-19', description='Nuestra tienda insignia.',
+        )
+        # Oculta de la tienda pública (sigue activa para inventario).
+        Warehouse.objects.create(name='Bodega Interna', show_in_store=False)
+        # Inactiva: tampoco aparece.
+        Warehouse.objects.create(name='Tienda Vieja', show_in_store=True, is_active=False)
+
+    def test_public_lists_only_visible_stores_with_details(self):
+        resp = self.client.get('/api/v1/store/points/')  # público, sin auth
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data), 1)
+        store = resp.data[0]
+        self.assertEqual(store['name'], 'Tienda Centro')
+        self.assertEqual(store['phone'], '+57 300 111 2233')
+        self.assertEqual(store['email'], 'centro@negocio.com')
+        self.assertEqual(store['hours'], 'Lun a Sáb 9-19')
+        self.assertIn('map_embed_url', store)

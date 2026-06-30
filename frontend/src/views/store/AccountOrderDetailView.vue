@@ -24,6 +24,18 @@ const STEPS = [
 const stepIndex = computed(() => STEPS.findIndex((s) => s.key === order.value?.status))
 const isCancelled = computed(() => order.value?.status === 'cancelado')
 
+// Agrupa el reparto del pedido por tienda (para mostrar dónde se prepara/recoge).
+const pickupGroups = computed(() => {
+  const allocs = order.value?.allocations || []
+  const map = new Map()
+  for (const a of allocs) {
+    if (!map.has(a.warehouse)) map.set(a.warehouse, { name: a.warehouse_name, items: [] })
+    map.get(a.warehouse).items.push(a)
+  }
+  return [...map.values()]
+})
+const isSplit = computed(() => pickupGroups.value.length > 1)
+
 function money(v) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0)
 }
@@ -76,7 +88,7 @@ onMounted(load)
 
       <header class="detail__head">
         <div>
-          <h1 class="detail__title">Pedido #{{ order.number }}</h1>
+          <h1 class="detail__title">Pedido {{ order.code }}</h1>
           <p class="detail__sub">Realizado el {{ dt(order.created_at) }}</p>
         </div>
         <button
@@ -152,7 +164,34 @@ onMounted(load)
               <p v-if="order.ship_phone_alt" class="side__line side__line--muted">Tel. secundario: {{ order.ship_phone_alt }}</p>
               <p v-if="order.ship_notes" class="side__line side__line--muted">{{ order.ship_notes }}</p>
             </template>
-            <p v-else class="side__line">Recoge en <strong>{{ order.warehouse_name }}</strong></p>
+            <template v-else>
+              <p v-if="!isSplit" class="side__line">Recoge en <strong>{{ order.warehouse_name }}</strong></p>
+              <template v-else>
+                <p class="side__line side__line--muted">Recoge tu pedido en estas tiendas:</p>
+                <div v-for="g in pickupGroups" :key="g.name" class="pickup-store">
+                  <p class="side__line side__line--strong">{{ g.name }}</p>
+                  <ul class="pickup-items">
+                    <li v-for="it in g.items" :key="it.id">
+                      {{ it.quantity }}× {{ it.description }} <small v-if="it.options">{{ it.options }}</small>
+                    </li>
+                  </ul>
+                </div>
+              </template>
+            </template>
+          </section>
+
+          <!-- Envío preparado en varias sedes (informativo) -->
+          <section v-if="order.fulfillment === 'envio' && isSplit" class="card">
+            <h2 class="card__title"><Store :size="17" /> Preparación</h2>
+            <p class="side__line side__line--muted">Tu envío se prepara en varias de nuestras tiendas:</p>
+            <div v-for="g in pickupGroups" :key="g.name" class="pickup-store">
+              <p class="side__line side__line--strong">{{ g.name }}</p>
+              <ul class="pickup-items">
+                <li v-for="it in g.items" :key="it.id">
+                  {{ it.quantity }}× {{ it.description }} <small v-if="it.options">{{ it.options }}</small>
+                </li>
+              </ul>
+            </div>
           </section>
 
           <section class="card">
@@ -376,6 +415,22 @@ onMounted(load)
   color: var(--color-ink);
 }
 .side__line--muted {
+  color: var(--color-muted);
+}
+.pickup-store {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-line);
+}
+.pickup-items {
+  margin: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.85rem;
+  color: var(--color-body);
+}
+.pickup-items small {
   color: var(--color-muted);
 }
 .badge {

@@ -32,6 +32,14 @@ class Address(TimeStampedModel):
     )
     notes = models.CharField('indicaciones', max_length=255, blank=True, default='')
     is_default = models.BooleanField('predeterminada', default=False)
+    # Coordenadas (geocodificadas de la dirección) para rutear al punto más
+    # cercano. Pueden ser nulas si la geocodificación no las resolvió.
+    latitude = models.DecimalField(
+        'latitud', max_digits=9, decimal_places=6, blank=True, null=True
+    )
+    longitude = models.DecimalField(
+        'longitud', max_digits=9, decimal_places=6, blank=True, null=True
+    )
 
     class Meta:
         verbose_name = 'dirección'
@@ -255,8 +263,17 @@ class Order(TimeStampedModel):
         """True si el pedido aún puede avanzar o cancelarse."""
         return self.status not in (self.Status.DELIVERED, self.Status.CANCELLED)
 
+    @property
+    def code(self):
+        """Identificador legible e inequívoco del pedido (P-0001).
+
+        El prefijo evita la ambigüedad con las ventas (V-0001): un pedido es el
+        documento comercial; al entregarse genera su venta (ver sales.Sale).
+        """
+        return f'P-{self.number:04d}'
+
     def __str__(self):
-        return f'Pedido #{self.number}'
+        return f'Pedido {self.code}'
 
 
 class OrderItem(models.Model):
@@ -286,3 +303,39 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f'{self.quantity} × {self.description}'
+
+
+class OrderAllocation(models.Model):
+    """Reparto del pedido entre bodegas (fulfillment dividido).
+
+    Indica de qué bodega salen cuántas unidades de cada variante. Es lo que
+    mueve el inventario: un pedido puede surtirse desde varias sedes, así no se
+    pierde una venta porque ninguna tienda sola lo tenga todo. La suma de las
+    asignaciones de una variante es igual a la cantidad pedida de esa variante.
+    """
+
+    order = models.ForeignKey(
+        Order, on_delete=models.CASCADE, related_name='allocations', verbose_name='pedido'
+    )
+    variant = models.ForeignKey(
+        'catalog.ProductVariant',
+        on_delete=models.PROTECT,
+        related_name='order_allocations',
+        verbose_name='variante',
+    )
+    warehouse = models.ForeignKey(
+        'inventory.Warehouse',
+        on_delete=models.PROTECT,
+        related_name='order_allocations',
+        verbose_name='bodega',
+    )
+    quantity = models.PositiveIntegerField('cantidad')
+    unit_cost = models.DecimalField('costo unitario', max_digits=12, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = 'asignación de pedido'
+        verbose_name_plural = 'asignaciones de pedido'
+        ordering = ['id']
+
+    def __str__(self):
+        return f'{self.quantity} × {self.variant} @ {self.warehouse}'

@@ -125,7 +125,8 @@ class AttributeValueSerializer(serializers.ModelSerializer):
 
 
 class ProductAttributeSerializer(serializers.ModelSerializer):
-    values = AttributeValueSerializer(many=True, read_only=True)
+    # Valores en el orden GLOBAL del catálogo (ver ProductAttribute.ordered_values).
+    values = AttributeValueSerializer(source='ordered_values', many=True, read_only=True)
     # ¿Sus opciones usan color? (heredado del atributo del catálogo).
     has_swatch = serializers.SerializerMethodField()
 

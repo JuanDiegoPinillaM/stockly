@@ -9,7 +9,8 @@ import {
   PowerOff,
   Check,
   X,
-  ChevronRight
+  ChevronRight,
+  GripVertical
 } from 'lucide-vue-next'
 import { brandsApi, attributeDefinitionsApi, attributeOptionsApi } from '@/services/catalog'
 import { confirmAction, toastSuccess, toastError } from '@/utils/notify'
@@ -224,6 +225,38 @@ async function toggleOpt(opt) {
   }
 }
 
+// --- Reordenar opciones (S, M, L, XL…) arrastrando ---
+// El orden (`position`) es GLOBAL: se respeta en la tienda, el POS y todos los
+// productos que usen este atributo.
+const dragDef = ref(null)
+const dragOptIndex = ref(null)
+function onOptDragStart(def, i) {
+  dragDef.value = def.id
+  dragOptIndex.value = i
+}
+function onOptDragEnd() {
+  dragDef.value = null
+  dragOptIndex.value = null
+}
+async function onOptDrop(def, i) {
+  if (dragDef.value !== def.id || dragOptIndex.value === null || dragOptIndex.value === i) {
+    onOptDragEnd()
+    return
+  }
+  const arr = [...def.options]
+  const [moved] = arr.splice(dragOptIndex.value, 1)
+  arr.splice(i, 0, moved)
+  def.options = arr
+  onOptDragEnd()
+  arr.forEach((o, idx) => (o.position = idx))
+  try {
+    await Promise.all(arr.map((o, idx) => attributeOptionsApi.update(o.id, { position: idx })))
+    toastSuccess('Orden actualizado')
+  } catch (e) {
+    toastError(e.response?.data?.detail || 'No se pudo guardar el orden.')
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -333,7 +366,10 @@ onMounted(load)
                 <button class="def__name" @click="toggleExpand(def.id)">{{ def.name }}</button>
                 <span v-if="def.has_swatch" class="def__tag">usa color</span>
                 <span v-if="!def.is_active" class="attr-badge">Inactivo</span>
-                <span class="attr-item__count">{{ def.options.length }} opc.</span>
+                <span
+                  class="attr-item__count"
+                  :title="`${def.products_count} producto(s) usan este atributo`"
+                >{{ def.options.length }} opc. · {{ def.products_count }} prod.</span>
                 <div class="attr-item__actions">
                   <button class="icon-btn" title="Editar" @click="startEditDef(def)"><Pencil :size="15" /></button>
                   <button
@@ -352,8 +388,21 @@ onMounted(load)
             </div>
 
             <div v-if="expanded[def.id]" class="def__body">
+              <p v-if="def.options.length > 1" class="opt-reorder-hint">
+                Arrastra las opciones para ordenarlas; ese orden se respeta en la tienda y el POS.
+              </p>
               <ul class="opt-list">
-                <li v-for="opt in def.options" :key="opt.id" class="opt-item">
+                <li
+                  v-for="(opt, oi) in def.options"
+                  :key="opt.id"
+                  class="opt-item"
+                  :class="{ 'opt-item--drag': dragDef === def.id && dragOptIndex === oi }"
+                  :draggable="editingOpt !== opt.id"
+                  @dragstart="onOptDragStart(def, oi)"
+                  @dragover.prevent
+                  @drop.prevent="onOptDrop(def, oi)"
+                  @dragend="onOptDragEnd"
+                >
                   <template v-if="editingOpt === opt.id">
                     <input v-if="def.has_swatch" v-model="editOptData.swatch_hex" type="color" class="color-input color-input--sm" />
                     <input v-model="editOptData.value" class="field__input field__input--inline" />
@@ -363,6 +412,7 @@ onMounted(load)
                     </div>
                   </template>
                   <template v-else>
+                    <GripVertical :size="15" class="opt-item__grip" />
                     <span v-if="def.has_swatch" class="swatch swatch--sm" :style="{ background: opt.swatch_hex }"></span>
                     <span class="opt-item__name">
                       {{ opt.value }}
@@ -673,6 +723,24 @@ onMounted(load)
   gap: 10px;
   padding: 8px 0;
   border-bottom: 1px solid var(--color-surface-alt);
+}
+.opt-item[draggable='true'] {
+  cursor: grab;
+}
+.opt-item[draggable='true']:active {
+  cursor: grabbing;
+}
+.opt-item--drag {
+  opacity: 0.4;
+}
+.opt-item__grip {
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+.opt-reorder-hint {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  margin-bottom: 6px;
 }
 .opt-item__name {
   flex: 1;

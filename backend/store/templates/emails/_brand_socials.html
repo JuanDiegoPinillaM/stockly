@@ -1,0 +1,6 @@
+{% comment %}Línea de redes sociales para el pie de los correos. Espera business.socials.{% endcomment %}
+{% if business.socials %}
+<div style="margin-top:10px;font-size:12px;color:#9aa39c;">
+  {% for s in business.socials %}<a href="{{ s.url }}" style="color:{{ business.primary }};text-decoration:none;font-weight:600;">{{ s.label }}</a>{% if not forloop.last %} &nbsp;·&nbsp; {% endif %}{% endfor %}
+</div>
+{% endif %}

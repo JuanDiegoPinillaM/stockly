@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import {
   LayoutDashboard,
@@ -16,12 +16,18 @@ import {
   Send,
   BarChart3,
   Settings,
+  Paintbrush,
   ChevronRight,
+  ChevronDown,
   Menu,
   LogOut,
   ShieldCheck,
   Home,
-  Globe
+  Globe,
+  Tags,
+  Layers,
+  Store,
+  CircleUser
 } from 'lucide-vue-next'
 import BrandLogo from '@/components/BrandLogo.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -40,6 +46,7 @@ const navGroups = [
   },
   {
     label: 'Catálogo',
+    icon: Tags,
     items: [
       { label: 'Productos', to: '/dashboard/productos', icon: Package, ready: true },
       { label: 'Categorías', to: '/dashboard/categorias', icon: FolderTree, ready: true },
@@ -48,6 +55,7 @@ const navGroups = [
   },
   {
     label: 'Inventario',
+    icon: Layers,
     items: [
       { label: 'Existencias', to: '/dashboard/inventario', icon: Boxes, ready: true },
       { label: 'Movimientos', to: '/dashboard/movimientos', icon: ArrowLeftRight, ready: true, adminOnly: true },
@@ -57,6 +65,7 @@ const navGroups = [
   },
   {
     label: 'Ventas',
+    icon: Store,
     items: [
       { label: 'Punto de venta', to: '/dashboard/pos', icon: ShoppingCart, ready: true },
       { label: 'Ventas', to: '/dashboard/ventas', icon: Receipt, ready: true },
@@ -66,13 +75,16 @@ const navGroups = [
   },
   {
     label: 'Administración',
+    icon: ShieldCheck,
     items: [
       { label: 'Usuarios', to: '/dashboard/usuarios', icon: Users, ready: true, adminOnly: true },
-      { label: 'Reportes', to: '/dashboard', icon: BarChart3, ready: false }
+      { label: 'Personalización', to: '/dashboard/configuracion', icon: Paintbrush, ready: true, adminOnly: true },
+      { label: 'Reportes', to: '/dashboard/reportes', icon: BarChart3, ready: true, adminOnly: true }
     ]
   },
   {
     label: 'Cuenta',
+    icon: CircleUser,
     items: [{ label: 'Configuración', to: '/dashboard/perfil', icon: Settings, ready: true }]
   }
 ]
@@ -111,6 +123,41 @@ function isNavActive(item) {
   return route.path === item.to || route.path.startsWith(item.to + '/')
 }
 
+// --- Grupos desplegables del sidebar (acordeón: solo uno abierto a la vez) ---
+function groupHasActive(group) {
+  return group.items.some(isNavActive)
+}
+
+// Grupo abierto manualmente por el usuario. Si es null, se abre el de la ruta
+// actual; al navegar a otra sección el acordeón la sigue automáticamente.
+const manualOpen = ref(null)
+
+// El grupo que contiene la ruta activa (donde estás situado).
+const activeGroupLabel = computed(() => {
+  const g = visibleNavGroups.value.find((group) => group.label && groupHasActive(group))
+  return g ? g.label : null
+})
+
+// Acordeón: el abierto es el que tocó el usuario, o —por defecto— el activo.
+const openLabel = computed(() => manualOpen.value ?? activeGroupLabel.value)
+
+function isGroupOpen(group) {
+  return group.label === openLabel.value
+}
+
+function toggleGroup(group) {
+  // Al hacer clic en el ya abierto se cierra; abrir otro cierra el anterior.
+  manualOpen.value = openLabel.value === group.label ? '' : group.label
+}
+
+// Al cambiar de ruta, vuelve a seguir a la sección activa (descarta el manual).
+watch(
+  () => route.path,
+  () => {
+    manualOpen.value = null
+  }
+)
+
 async function logout() {
   await auth.logout()
   router.push('/login')
@@ -127,22 +174,45 @@ async function logout() {
 
       <nav class="dash__nav" aria-label="Navegación principal">
         <div v-for="group in visibleNavGroups" :key="group.label || 'main'" class="dash__nav-group">
-          <p v-if="group.label" class="dash__nav-label">{{ group.label }}</p>
-          <RouterLink
-            v-for="item in group.items"
-            :key="item.label"
-            :to="item.to"
-            class="dash__nav-item"
+          <!-- Encabezado desplegable (los grupos con nombre se colapsan) -->
+          <button
+            v-if="group.label"
+            type="button"
+            class="dash__nav-toggle"
             :class="{
-              'dash__nav-item--soon': !item.ready,
-              'dash__nav-item--active': isNavActive(item)
+              'dash__nav-toggle--open': isGroupOpen(group),
+              'dash__nav-toggle--active': groupHasActive(group)
             }"
-            @click="sidebarOpen = false"
+            :aria-expanded="isGroupOpen(group)"
+            @click="toggleGroup(group)"
           >
-            <component :is="item.icon" :size="19" />
-            <span>{{ item.label }}</span>
-            <span v-if="!item.ready" class="dash__soon">Pronto</span>
-          </RouterLink>
+            <component :is="group.icon" :size="18" class="dash__nav-toggle-icon" />
+            <span class="dash__nav-toggle-label">{{ group.label }}</span>
+            <span v-if="!isGroupOpen(group) && groupHasActive(group)" class="dash__nav-dot"></span>
+            <ChevronDown :size="16" class="dash__nav-caret" />
+          </button>
+
+          <div
+            v-show="!group.label || isGroupOpen(group)"
+            class="dash__nav-items"
+            :class="{ 'dash__nav-items--nested': group.label }"
+          >
+            <RouterLink
+              v-for="item in group.items"
+              :key="item.label"
+              :to="item.to"
+              class="dash__nav-item"
+              :class="{
+                'dash__nav-item--soon': !item.ready,
+                'dash__nav-item--active': isNavActive(item)
+              }"
+              @click="sidebarOpen = false"
+            >
+              <component :is="item.icon" :size="19" />
+              <span>{{ item.label }}</span>
+              <span v-if="!item.ready" class="dash__soon">Pronto</span>
+            </RouterLink>
+          </div>
         </div>
       </nav>
 
@@ -218,7 +288,9 @@ async function logout() {
 .dash {
   --sidebar-width: 264px;
   min-height: 100vh;
-  background: var(--color-surface-alt);
+  /* Si el admin personaliza el fondo de página, también tiñe el dashboard; si no,
+     conserva el crema por defecto (que contrasta con las tarjetas blancas). */
+  background: var(--color-page, var(--color-surface-alt));
 }
 
 /* Sidebar */
@@ -236,8 +308,26 @@ async function logout() {
 }
 
 .dash__brand {
-  padding: 22px 24px;
+  padding: 18px 20px;
   border-bottom: 1px solid var(--color-line);
+  color: var(--color-ink);
+}
+/* `display: flex` (de bloque) evita el hueco de línea base que deja un <a>
+   inline debajo de la imagen. */
+.dash__brand a {
+  display: flex;
+  align-items: center;
+}
+/* Cuando hay logo subido, que llene el ancho del sidebar (sin desperdiciar
+   espacio), limitado por una altura máxima para logos cuadrados/altos. */
+.dash__brand :deep(.brand--logo),
+.dash__brand :deep(.brand__logo) {
+  width: 100%;
+}
+.dash__brand :deep(.brand__logo) {
+  height: auto;
+  max-width: 210px;
+  max-height: 58px;
 }
 
 .dash__nav {
@@ -247,30 +337,82 @@ async function logout() {
 }
 
 .dash__nav-group {
-  margin-bottom: 18px;
+  margin-bottom: 2px;
 }
 .dash__nav-group:last-child {
   margin-bottom: 0;
 }
 
-.dash__nav-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* Encabezado de sección desplegable: mismo estilo que un ítem (icono + nombre + flecha) */
+.dash__nav-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 11px;
+  margin-bottom: 2px;
+  border-radius: var(--radius-sm);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-body);
+  transition:
+    background 0.16s ease,
+    color 0.16s ease;
+}
+.dash__nav-toggle:hover {
+  background: var(--color-surface-alt);
+  color: var(--color-ink);
+}
+.dash__nav-toggle-icon {
+  flex-shrink: 0;
+}
+.dash__nav-toggle-label {
+  flex: 1;
+  text-align: left;
+}
+/* Marca el grupo donde estás situado cuando está colapsado */
+.dash__nav-toggle--active:not(.dash__nav-toggle--open) .dash__nav-toggle-icon,
+.dash__nav-toggle--active:not(.dash__nav-toggle--open) .dash__nav-toggle-label {
+  color: var(--color-primary);
+}
+.dash__nav-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  flex-shrink: 0;
+}
+.dash__nav-caret {
+  flex-shrink: 0;
   color: var(--color-muted);
-  padding: 0 12px;
-  margin-bottom: 8px;
+  transition: transform 0.2s ease;
+}
+.dash__nav-toggle--open .dash__nav-caret {
+  transform: rotate(180deg);
+  color: var(--color-ink);
+}
+.dash__nav-items {
+  margin-bottom: 6px;
+}
+/* Ítems de un grupo con encabezado: indentados con guía vertical (jerarquía) */
+.dash__nav-items--nested {
+  margin: 2px 0 8px 21px;
+  padding-left: 19px;
+  border-left: 1.5px solid var(--color-line);
 }
 
 .dash__nav-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 12px;
-  margin-bottom: 4px;
+  gap: 11px;
+  padding: 9px 11px;
+  margin-bottom: 2px;
   border-radius: var(--radius-sm);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 500;
   color: var(--color-body);
   transition:

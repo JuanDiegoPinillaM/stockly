@@ -1,3 +1,5 @@
+import re
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -12,14 +14,97 @@ from .models import (
     TransferItem,
     Warehouse,
 )
+from .schedule import summarize_schedule
 from .services import record_movement, request_transfer
 
 
 class WarehouseSerializer(serializers.ModelSerializer):
+    city_name = serializers.CharField(source='city.name', read_only=True, default=None)
+    department_name = serializers.CharField(
+        source='city.department.name', read_only=True, default=None
+    )
+    country_name = serializers.CharField(
+        source='city.department.country.name', read_only=True, default=None
+    )
+    # IDs derivados (para precargar el cascadeo país→depto→ciudad en el formulario).
+    department = serializers.IntegerField(source='city.department_id', read_only=True, default=None)
+    country = serializers.IntegerField(
+        source='city.department.country_id', read_only=True, default=None
+    )
+    # Horario agrupado para mostrar ("Lunes a viernes …"); el editor usa `schedule`.
+    schedule_display = serializers.SerializerMethodField()
+
     class Meta:
         model = Warehouse
-        fields = ['id', 'name', 'code', 'address', 'is_active', 'created_at', 'updated_at']
+        fields = [
+            'id', 'name', 'code', 'address', 'is_active',
+            'description', 'email', 'phone', 'hours', 'schedule', 'schedule_display', 'photo',
+            'map_embed_url', 'show_in_store',
+            'city', 'city_name', 'department', 'department_name',
+            'country', 'country_name',
+            'created_at', 'updated_at',
+        ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'photo': {'required': False, 'allow_null': True},
+            'city': {'required': False, 'allow_null': True},
+        }
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_schedule_display(self, obj):
+        return summarize_schedule(obj.schedule)
+
+    # Dominios de mapa permitidos para el iframe (evita incrustar cualquier sitio).
+    _MAP_HOSTS = ('google.com', 'google.', 'maps.google', 'openstreetmap.org')
+
+    def validate_map_embed_url(self, value):
+        value = (value or '').strip()
+        if not value:
+            return ''
+        # Si pegaron el <iframe ... src="...">, extrae solo el src.
+        match = re.search(r'src=["\']([^"\']+)["\']', value, re.IGNORECASE)
+        if match:
+            value = match.group(1).strip()
+        if not value.startswith('https://'):
+            raise serializers.ValidationError('El mapa debe ser un enlace https de Google Maps.')
+        if not any(h in value for h in self._MAP_HOSTS):
+            raise serializers.ValidationError(
+                'Usa el enlace para insertar de Google Maps (Compartir → Insertar un mapa).'
+            )
+        return value
+
+    def validate_phone(self, value):
+        # Opcional; si viene, debe tener exactamente 10 dígitos. Se normaliza al
+        # formato agrupado "300 123 4567" para que quede igual venga del form o de la API.
+        value = (value or '').strip()
+        if not value:
+            return ''
+        digits = re.sub(r'\D', '', value)
+        if len(digits) != 10:
+            raise serializers.ValidationError('El teléfono debe tener 10 dígitos.')
+        return f'{digits[:3]} {digits[3:6]} {digits[6:]}'
+
+
+class WarehouseDetailSerializer(WarehouseSerializer):
+    """Bodega + KPIs de inventario para la vista de detalle del panel."""
+
+    stats = serializers.SerializerMethodField()
+
+    class Meta(WarehouseSerializer.Meta):
+        fields = WarehouseSerializer.Meta.fields + ['stats']
+
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_stats(self, obj):
+        from django.db.models import Count, Sum
+
+        levels = obj.stock_levels.filter(quantity__gt=0)
+        agg = levels.aggregate(units=Sum('quantity'), variants=Count('id'))
+        products = levels.values('variant__product').distinct().count()
+        return {
+            'total_units': agg['units'] or 0,
+            'variant_count': agg['variants'] or 0,
+            'product_count': products,
+        }
 
 
 class StockLevelSerializer(serializers.ModelSerializer):

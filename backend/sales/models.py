@@ -17,14 +17,40 @@ class SaleStatus(models.TextChoices):
     VOID = 'anulada', 'Anulada'
 
 
-class Sale(models.Model):
-    """Una venta del POS. Inmutable salvo por la anulación.
+class SaleChannel(models.TextChoices):
+    """Canal por el que se realizó la venta.
 
-    Al completarse descuenta inventario creando movimientos de salida (venta)
-    en el kardex, así toda venta queda trazada en el inventario.
+    El POS la registra directo; la tienda en línea la genera a partir de un
+    pedido cuando éste se entrega (un pedido culmina en una venta).
+    """
+
+    POS = 'pos', 'Punto de venta'
+    ONLINE = 'online', 'Tienda en línea'
+
+
+class Sale(models.Model):
+    """Una venta: el registro fiscal/contable de un ingreso realizado.
+
+    Es el libro de ventas único del negocio. Una venta del POS se registra de
+    inmediato (inmutable salvo anulación) descontando inventario con movimientos
+    de salida. Una venta en línea se genera a partir de un pedido entregado
+    (`channel=online`, `order` apunta al pedido) y NO vuelve a mover inventario:
+    el pedido ya lo descontó al crearse, esta venta solo registra el ingreso.
     """
 
     number = models.PositiveIntegerField('número', unique=True, editable=False)
+    channel = models.CharField(
+        'canal', max_length=10, choices=SaleChannel.choices, default=SaleChannel.POS
+    )
+    # Pedido en línea que dio origen a esta venta (nulo en ventas del POS).
+    order = models.OneToOneField(
+        'store.Order',
+        on_delete=models.PROTECT,
+        related_name='sale',
+        verbose_name='pedido',
+        blank=True,
+        null=True,
+    )
     # El cliente es un usuario (clientes y usuarios son la misma entidad). Puede
     # ser nulo (venta de mostrador sin identificar).
     customer = models.ForeignKey(
@@ -84,8 +110,13 @@ class Sale(models.Model):
     def total_items(self):
         return sum(item.quantity for item in self.items.all())
 
+    @property
+    def code(self):
+        """Identificador legible e inequívoco de la venta (V-0001)."""
+        return f'V-{self.number:04d}'
+
     def __str__(self):
-        return f'Venta #{self.number}'
+        return f'Venta {self.code}'
 
 
 class SaleItem(models.Model):

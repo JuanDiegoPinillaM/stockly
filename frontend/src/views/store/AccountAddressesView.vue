@@ -1,9 +1,9 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Plus, Pencil, Trash2, MapPin, Star } from 'lucide-vue-next'
 import AccountNav from '@/components/AccountNav.vue'
-import SearchSelect from '@/components/SearchSelect.vue'
-import { addressesApi, geoApi } from '@/services/store'
+import AddressForm from '@/components/AddressForm.vue'
+import { addressesApi } from '@/services/store'
 import LoadingState from '@/components/LoadingState.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import { confirmDelete, toastSuccess, toastError } from '@/utils/notify'
@@ -11,33 +11,8 @@ import { confirmDelete, toastSuccess, toastError } from '@/utils/notify'
 const addresses = ref([])
 const loading = ref(true)
 const error = ref('')
-const editing = ref(null) // null = cerrado; {} = nuevo; {id,...} = editar
+const editing = ref(null) // null = cerrado; {} = nueva; {id,...} = editar
 const saving = ref(false)
-
-// Catálogos de ubicación (cascada).
-const countries = ref([])
-const departments = ref([])
-const cities = ref([])
-
-function blank() {
-  return {
-    label: '', recipient: '', line1: '', phone: '',
-    country: '', department: '', city: '', notes: '', is_default: false
-  }
-}
-
-const canSave = computed(() => {
-  const e = editing.value
-  return (
-    e &&
-    e.recipient?.trim() &&
-    e.line1?.trim() &&
-    e.phone?.trim() &&
-    e.country &&
-    e.department &&
-    e.city
-  )
-})
 
 async function load() {
   loading.value = true
@@ -52,59 +27,23 @@ async function load() {
   }
 }
 
-async function openNew() {
-  editing.value = blank()
-  departments.value = []
-  cities.value = []
-  // Colombia es el único país por ahora: lo preselecciona y carga departamentos.
-  if (countries.value.length === 1) {
-    editing.value.country = countries.value[0].id
-    departments.value = await geoApi.departments(editing.value.country)
-  }
+function openNew() {
+  editing.value = {}
 }
-
-async function openEdit(a) {
-  editing.value = {
-    id: a.id,
-    label: a.label || '',
-    recipient: a.recipient || '',
-    line1: a.line1 || '',
-    phone: a.phone || '',
-    country: a.country || '',
-    department: a.department || '',
-    city: a.city || '',
-    notes: a.notes || '',
-    is_default: a.is_default
-  }
-  departments.value = a.country ? await geoApi.departments(a.country) : []
-  cities.value = a.department ? await geoApi.cities(a.department) : []
+function openEdit(a) {
+  editing.value = a
 }
-
 function cancel() {
   editing.value = null
 }
 
-async function onCountry(id) {
-  editing.value.country = id
-  editing.value.department = ''
-  editing.value.city = ''
-  departments.value = id ? await geoApi.departments(id) : []
-  cities.value = []
-}
-async function onDepartment(id) {
-  editing.value.department = id
-  editing.value.city = ''
-  cities.value = id ? await geoApi.cities(id) : []
-}
-
-async function save() {
-  if (!canSave.value) return
+async function save(payload) {
   saving.value = true
   try {
-    if (editing.value.id) {
-      await addressesApi.update(editing.value.id, editing.value)
+    if (payload.id) {
+      await addressesApi.update(payload.id, payload)
     } else {
-      await addressesApi.create(editing.value)
+      await addressesApi.create(payload)
     }
     editing.value = null
     await load()
@@ -128,14 +67,7 @@ async function remove(a) {
   }
 }
 
-onMounted(async () => {
-  try {
-    countries.value = await geoApi.countries()
-  } catch {
-    /* el form igual abre; sin países no se puede guardar */
-  }
-  await load()
-})
+onMounted(load)
 </script>
 
 <template>
@@ -150,39 +82,13 @@ onMounted(async () => {
 
     <!-- Formulario -->
     <section v-if="editing" class="card-box form">
-      <div class="field-row">
-        <label class="field"><span class="field__label">Etiqueta</span><input v-model="editing.label" class="field__input" placeholder="Casa, Oficina…" /></label>
-        <label class="field"><span class="field__label">Destinatario *</span><input v-model="editing.recipient" class="field__input" /></label>
-      </div>
-
-      <label class="field"><span class="field__label">Dirección *</span><input v-model="editing.line1" class="field__input" placeholder="Calle 00 # 00-00" /></label>
-
-      <div class="field-row">
-        <label class="field">
-          <span class="field__label">País *</span>
-          <SearchSelect :model-value="editing.country" :options="countries" value-key="id" label-key="name" placeholder="Selecciona país" @update:model-value="onCountry" />
-        </label>
-        <label class="field">
-          <span class="field__label">Departamento *</span>
-          <SearchSelect :model-value="editing.department" :options="departments" value-key="id" label-key="name" placeholder="Selecciona departamento" :disabled="!editing.country" @update:model-value="onDepartment" />
-        </label>
-      </div>
-
-      <div class="field-row">
-        <label class="field">
-          <span class="field__label">Ciudad *</span>
-          <SearchSelect v-model="editing.city" :options="cities" value-key="id" label-key="name" placeholder="Selecciona ciudad" :disabled="!editing.department" />
-        </label>
-        <label class="field"><span class="field__label">Teléfono *</span><input v-model="editing.phone" class="field__input" placeholder="300 123 4567" /></label>
-      </div>
-
-      <label class="field"><span class="field__label">Indicaciones</span><input v-model="editing.notes" class="field__input" placeholder="Apto, torre, referencia…" /></label>
-
-      <label class="check"><input v-model="editing.is_default" type="checkbox" /> Usar como predeterminada</label>
-      <div class="form__actions">
-        <button class="btn btn--ghost" @click="cancel">Cancelar</button>
-        <button class="btn btn--primary" :disabled="saving || !canSave" @click="save">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
-      </div>
+      <AddressForm
+        :key="editing.id || 'new'"
+        :initial="editing"
+        :saving="saving"
+        @submit="save"
+        @cancel="cancel"
+      />
     </section>
 
     <LoadingState v-if="loading" label="Cargando direcciones…" />

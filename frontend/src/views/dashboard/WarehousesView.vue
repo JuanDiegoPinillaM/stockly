@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { Warehouse, Plus, Pencil, Power, PowerOff } from 'lucide-vue-next'
+import { Warehouse, Building2, Plus, Pencil, Power, PowerOff, MapPin } from 'lucide-vue-next'
 import { warehousesApi } from '@/services/inventory'
 import { confirmAction, toastSuccess, toastError } from '@/utils/notify'
 import LoadingState from '@/components/LoadingState.vue'
@@ -26,8 +26,16 @@ async function load() {
   }
 }
 
+function openDetail(w) {
+  router.push({ name: 'warehouse-detail', params: { id: w.id } })
+}
+
 function openEdit(w) {
   router.push({ name: 'warehouse-edit', params: { id: w.id } })
+}
+
+function localityOf(w) {
+  return [w.city_name, w.department_name].filter(Boolean).join(', ')
 }
 
 async function toggle(w) {
@@ -83,8 +91,10 @@ onMounted(load)
           <tr>
             <th>Bodega</th>
             <th>Código</th>
-            <th>Dirección</th>
+            <th>Ubicación</th>
+            <th>Teléfono</th>
             <th>Estado</th>
+            <th>En tienda</th>
             <th></th>
           </tr>
         </thead>
@@ -94,17 +104,31 @@ onMounted(load)
             :key="w.id"
             class="row--clickable"
             :class="{ 'row--inactive': !w.is_active }"
-            @click="openEdit(w)"
+            @click="openDetail(w)"
           >
             <td>
-              <span class="wh-name"><Warehouse :size="15" /> {{ w.name }}</span>
+              <div class="wh-cell">
+                <span class="wh-thumb" :class="{ 'wh-thumb--empty': !w.photo }">
+                  <img v-if="w.photo" :src="w.photo" :alt="w.name" loading="lazy" />
+                  <Building2 v-else :size="18" />
+                </span>
+                <div class="wh-text">
+                  <span class="wh-name">{{ w.name }}</span>
+                  <span v-if="w.address" class="wh-addr"><MapPin :size="12" /> {{ w.address }}</span>
+                </div>
+              </div>
             </td>
             <td><code v-if="w.code" class="code">{{ w.code }}</code><span v-else class="muted">—</span></td>
-            <td class="addr">{{ w.address || '—' }}</td>
+            <td>{{ localityOf(w) || '—' }}</td>
+            <td>{{ w.phone || '—' }}</td>
             <td>
               <span class="badge" :class="w.is_active ? 'badge--on' : 'badge--off'">
                 {{ w.is_active ? 'Activa' : 'Inactiva' }}
               </span>
+            </td>
+            <td>
+              <span v-if="w.show_in_store" class="badge badge--store">Visible</span>
+              <span v-else class="muted">—</span>
             </td>
             <td class="actions" @click.stop>
               <button class="icon-btn" title="Editar" @click="openEdit(w)"><Pencil :size="15" /></button>
@@ -178,15 +202,50 @@ onMounted(load)
 .row--inactive {
   opacity: 0.55;
 }
-.wh-name {
+.wh-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wh-thumb {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-line);
+}
+.wh-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.wh-thumb--empty {
+  color: var(--color-muted);
+}
+.wh-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.wh-name {
   font-weight: 600;
   color: var(--color-ink);
 }
-.addr {
-  color: var(--color-body);
+.wh-addr {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+.wh-addr svg {
+  flex-shrink: 0;
 }
 .code {
   font-size: 0.82rem;
@@ -207,6 +266,10 @@ onMounted(load)
 .badge--off {
   background: #fef2f2;
   color: #b91c1c;
+}
+.badge--store {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 .actions {
   display: flex;

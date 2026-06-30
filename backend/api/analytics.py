@@ -5,13 +5,16 @@ tiempo, canales, top de productos/categorías, estados de pedidos, métodos de
 pago e inventario) en una sola respuesta, para un panel reactivo y rápido.
 `export` genera reportes CSV descargables.
 
-Fuentes: ventas del POS (sales.Sale) + pedidos en línea (store.Order). Los
-ingresos cuentan ventas COMPLETADAS y pedidos NO cancelados. La ganancia usa el
-costo por línea (subtotal sin IVA − costo). El inventario es una foto actual.
+Fuentes del ingreso realizado: el libro de ventas (sales.Sale, que incluye el
+POS y los pedidos ya ENTREGADOS —canal online—) + los pedidos en línea aún
+ABIERTOS (pendiente/confirmado/enviado). Un pedido entregado ya figura como
+venta, así que se excluye de la consulta de pedidos para no contarlo dos veces.
+La ganancia usa el costo por línea (subtotal sin IVA − costo). El inventario es
+una foto actual.
 """
 
 import csv
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.db.models import (
     Case,
@@ -33,7 +36,7 @@ from rest_framework.response import Response
 
 from catalog.models import ProductVariant
 from inventory.models import StockLevel
-from sales.models import Sale, SaleItem, SalePayment, SaleStatus
+from sales.models import Sale, SaleChannel, SaleItem, SalePayment, SaleStatus
 from store.models import Order, OrderItem
 
 ANALYTICS_TAG = ['Analítica']
@@ -98,6 +101,24 @@ def _resolve_period(request):
     }
 
 
+def _parse_date(raw):
+    """'2026-06-01' → date, o None si es inválida."""
+    try:
+        return date.fromisoformat(raw) if raw else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _export_range(request, period):
+    """Rango del reporte: usa ?from/?to si ambas son válidas y coherentes; si no,
+    cae al periodo preestablecido."""
+    f = _parse_date(request.query_params.get('from'))
+    t = _parse_date(request.query_params.get('to'))
+    if f and t and f <= t:
+        return f, t
+    return period['start'], period['end']
+
+
 def _sales_qs(start, end, warehouse_id):
     qs = Sale.objects.filter(
         status=SaleStatus.COMPLETED, created_at__date__gte=start, created_at__date__lte=end
@@ -108,6 +129,21 @@ def _sales_qs(start, end, warehouse_id):
 
 
 def _orders_qs(start, end, warehouse_id):
+    """Pedidos en línea AÚN ABIERTOS (su ingreso todavía no es una venta).
+
+    Se excluyen los cancelados (no son ingreso) y los entregados (ya figuran en
+    el libro de ventas como venta de canal online), para no contarlos dos veces.
+    """
+    qs = Order.objects.exclude(
+        status__in=[Order.Status.CANCELLED, Order.Status.DELIVERED]
+    ).filter(created_at__date__gte=start, created_at__date__lte=end)
+    if warehouse_id:
+        qs = qs.filter(warehouse_id=warehouse_id)
+    return qs
+
+
+def _orders_report_qs(start, end, warehouse_id):
+    """Todos los pedidos del periodo salvo cancelados (para listados/CSV)."""
     qs = Order.objects.exclude(status=Order.Status.CANCELLED).filter(
         created_at__date__gte=start, created_at__date__lte=end
     )
@@ -276,6 +312,20 @@ def _payment_methods(period, warehouse_id):
     return [{'name': n, 'amount': _f(v)} for n, v in sorted(rows.items(), key=lambda x: x[1], reverse=True)]
 
 
+def _channels(period, warehouse_id):
+    """Ingreso por canal. El POS sale del libro de ventas (canal pos); la tienda
+    en línea = ventas de canal online (pedidos entregados) + pedidos abiertos."""
+    start, end = period['start'], period['end']
+    sales = _sales_qs(start, end, warehouse_id)
+    pos = sales.filter(channel=SaleChannel.POS).aggregate(s=Sum('total'))['s'] or 0
+    online_sales = sales.filter(channel=SaleChannel.ONLINE).aggregate(s=Sum('total'))['s'] or 0
+    open_orders = _orders_qs(start, end, warehouse_id).aggregate(s=Sum('total'))['s'] or 0
+    return [
+        {'name': 'Punto de venta', 'amount': _f(pos)},
+        {'name': 'Tienda en línea', 'amount': _f(online_sales + open_orders)},
+    ]
+
+
 def _by_warehouse(period, warehouse_id):
     start, end = period['start'], period['end']
     rows = {}
@@ -295,6 +345,43 @@ def _order_pipeline(period, warehouse_id):
     counts = {r['status']: r['n'] for r in qs.values('status').annotate(n=Count('id'))}
     labels = dict(Order.Status.choices)
     return [{'status': s, 'label': labels[s], 'count': counts.get(s, 0)} for s in labels]
+
+
+def _unit_cost(variant):
+    """Costo unitario de referencia: promedio ponderado si existe, si no el de referencia."""
+    avg = variant.average_cost
+    return avg if avg and avg > 0 else (variant.cost_price or 0)
+
+
+def _inventory_full_rows(warehouse_id):
+    """Inventario valorizado COMPLETO (no solo bajo stock): cada variante activa
+    con sus existencias, costo unitario y valor (existencias × costo)."""
+    rows = []
+    if warehouse_id:
+        levels = (
+            StockLevel.objects
+            .filter(warehouse_id=warehouse_id, variant__is_active=True, variant__product__is_active=True)
+            .select_related('variant__product')
+            .order_by('variant__product__name', 'variant__sku')
+        )
+        for lvl in levels:
+            cost = _unit_cost(lvl.variant)
+            rows.append({
+                'name': lvl.variant.product.name, 'sku': lvl.variant.sku,
+                'stock': lvl.quantity, 'unit_cost': cost, 'value': (lvl.quantity or 0) * cost,
+            })
+    else:
+        variants = (
+            ProductVariant.objects.filter(is_active=True, product__is_active=True)
+            .select_related('product').order_by('product__name', 'sku')
+        )
+        for v in variants:
+            cost = _unit_cost(v)
+            rows.append({
+                'name': v.product.name, 'sku': v.sku,
+                'stock': v.stock, 'unit_cost': cost, 'value': (v.stock or 0) * cost,
+            })
+    return rows
 
 
 def _inventory(warehouse_id):
@@ -388,10 +475,7 @@ def overview(request):
             'customers': _kpi(cur['customers'], prev['customers']),
         },
         'timeseries': _timeseries(period, warehouse_id),
-        'channels': [
-            {'name': 'Punto de venta', 'amount': _f(_sales_qs(period['start'], period['end'], warehouse_id).aggregate(s=Sum('total'))['s'])},
-            {'name': 'Tienda en línea', 'amount': _f(_orders_qs(period['start'], period['end'], warehouse_id).aggregate(s=Sum('total'))['s'])},
-        ],
+        'channels': _channels(period, warehouse_id),
         'by_warehouse': _by_warehouse(period, warehouse_id),
         'top_products': _top_products(period, warehouse_id),
         'top_categories': _top_categories(period, warehouse_id),
@@ -405,12 +489,16 @@ def overview(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def export(request):
-    """Reporte CSV del periodo. ?dataset=sales|orders|products|inventory."""
+    """Reporte CSV. ?dataset=sales|orders|products|inventory.
+
+    Acepta un rango personalizado con ?from=YYYY-MM-DD&to=YYYY-MM-DD; si no, usa
+    el ?period (7d/30d/90d/12m). El inventario es una foto actual (ignora el rango).
+    """
     _require_staff(request)
     warehouse_id = _resolve_scope(request)
     period = _resolve_period(request)
     dataset = request.query_params.get('dataset', 'sales')
-    start, end = period['start'], period['end']
+    start, end = _export_range(request, period)
 
     response = HttpResponse(content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = f'attachment; filename="stockly-{dataset}-{end}.csv"'
@@ -418,20 +506,20 @@ def export(request):
     writer = csv.writer(response)
 
     if dataset == 'sales':
-        writer.writerow(['Número', 'Fecha', 'Bodega', 'Cliente', 'Estado', 'Subtotal', 'IVA', 'Total', 'Ítems'])
+        writer.writerow(['Número', 'Fecha', 'Canal', 'Bodega', 'Cliente', 'Estado', 'Subtotal', 'IVA', 'Total', 'Ítems'])
         qs = _sales_qs(start, end, warehouse_id).select_related('warehouse', 'customer').prefetch_related('items')
         for s in qs.order_by('created_at'):
             writer.writerow([
-                s.number, s.created_at.strftime('%Y-%m-%d %H:%M'), s.warehouse.name,
-                (s.customer.full_name if s.customer_id else 'Mostrador'),
+                s.code, s.created_at.strftime('%Y-%m-%d %H:%M'), s.get_channel_display(),
+                s.warehouse.name, (s.customer.full_name if s.customer_id else 'Mostrador'),
                 s.get_status_display(), s.subtotal, s.tax_total, s.total, s.total_items,
             ])
     elif dataset == 'orders':
         writer.writerow(['Número', 'Fecha', 'Punto', 'Comprador', 'Estado', 'Entrega', 'Pago', 'Total', 'Ítems'])
-        qs = _orders_qs(start, end, warehouse_id).select_related('warehouse', 'user').prefetch_related('items')
+        qs = _orders_report_qs(start, end, warehouse_id).select_related('warehouse', 'user').prefetch_related('items')
         for o in qs.order_by('created_at'):
             writer.writerow([
-                o.number, o.created_at.strftime('%Y-%m-%d %H:%M'), o.warehouse.name,
+                o.code, o.created_at.strftime('%Y-%m-%d %H:%M'), o.warehouse.name,
                 o.user.full_name, o.get_status_display(), o.get_fulfillment_display(),
                 o.get_payment_method_display(), o.total, o.total_items,
             ])
@@ -440,10 +528,14 @@ def export(request):
         for r in _top_products(period, warehouse_id, limit=1000):
             writer.writerow([r['name'], r['units'], r['revenue']])
     elif dataset == 'inventory':
-        writer.writerow(['Producto', 'SKU', 'Existencias', 'Stock mínimo'])
-        inv = _inventory(warehouse_id)
-        for r in inv['low_list']:
-            writer.writerow([r['name'], r['sku'], r['stock'], r['min_stock']])
+        # Inventario valorizado completo (foto actual; no depende del rango).
+        writer.writerow(['Producto', 'SKU', 'Existencias', 'Costo unitario', 'Valor'])
+        total = 0
+        for r in _inventory_full_rows(warehouse_id):
+            writer.writerow([r['name'], r['sku'], r['stock'], r['unit_cost'], r['value']])
+            total += r['value']
+        writer.writerow([])
+        writer.writerow(['', '', '', 'Valor total', total])
     else:
         writer.writerow(['Dataset no reconocido'])
 

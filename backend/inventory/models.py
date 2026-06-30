@@ -2,15 +2,52 @@ from django.conf import settings
 from django.db import models
 
 from catalog.models import ProductVariant, TimeStampedModel
+from config.uploads import UploadToUUID
 
 
 class Warehouse(TimeStampedModel):
-    """Bodega o almacén donde se guarda existencia (multi-ubicación)."""
+    """Bodega o almacén donde se guarda existencia (multi-ubicación).
+
+    Una bodega es también una "tienda" de cara al comprador: si `show_in_store`
+    está activo, aparece en la página pública de tiendas con sus datos de
+    contacto, foto, horario y mapa, y es un punto donde se puede recoger.
+    """
 
     name = models.CharField('nombre', max_length=120, unique=True)
     code = models.CharField('código', max_length=20, blank=True, default='')
     address = models.CharField('dirección', max_length=200, blank=True, default='')
+    # Ciudad (geo) de la bodega: se usa para elegir la tienda más cercana al
+    # comprador al despachar un envío (ruteo por cercanía). Opcional.
+    city = models.ForeignKey(
+        'geo.City', on_delete=models.PROTECT, related_name='warehouses',
+        verbose_name='ciudad', blank=True, null=True,
+    )
     is_active = models.BooleanField('activa', default=True)
+
+    # ---- Datos de "tienda" (vitrina pública) ----
+    description = models.TextField('descripción', blank=True, default='')
+    email = models.EmailField('correo', blank=True, default='')
+    phone = models.CharField('teléfono', max_length=40, blank=True, default='')
+    # Nota libre de horario (respaldo); el horario estructurado va en `schedule`.
+    hours = models.CharField('nota de horario', max_length=200, blank=True, default='')
+    # Horario por día: {"mon": {"closed": false, "open": "07:00", "close": "21:00"},
+    # ... "sun": {...}, "holidays": {...}}. Se muestra agrupando días iguales.
+    schedule = models.JSONField('horario por día', blank=True, default=dict)
+    photo = models.ImageField(
+        'foto', upload_to=UploadToUUID('warehouses'), blank=True, null=True
+    )
+    # src del iframe de Google Maps (Compartir → Insertar un mapa → copiar src).
+    map_embed_url = models.URLField('mapa (URL del iframe)', max_length=600, blank=True, default='')
+    # Coordenadas de la bodega (del mapa o geocodificadas) para medir la
+    # distancia real al comprador y elegir la sede más cercana.
+    latitude = models.DecimalField(
+        'latitud', max_digits=9, decimal_places=6, blank=True, null=True
+    )
+    longitude = models.DecimalField(
+        'longitud', max_digits=9, decimal_places=6, blank=True, null=True
+    )
+    # Si aparece en la tienda pública (lista de tiendas y opción de recoger).
+    show_in_store = models.BooleanField('mostrar en la tienda', default=True)
 
     class Meta:
         verbose_name = 'bodega'

@@ -13,12 +13,16 @@ import {
   Sparkles
 } from 'lucide-vue-next'
 import { storeApi } from '@/services/store'
+import { useConfigStore } from '@/stores/config'
 import ProductCard from '@/components/store/ProductCard.vue'
 import LoadingState from '@/components/LoadingState.vue'
 
 const categories = ref([])
 const products = ref([])
 const loading = ref(true)
+
+const configStore = useConfigStore()
+const storeName = computed(() => configStore.config?.business_name || 'nosotros')
 
 const PERKS = [
   { icon: Truck, title: 'Envío a todo el país', text: 'Recíbelo donde estés.' },
@@ -171,7 +175,7 @@ onMounted(async () => {
       <section class="promise">
         <div class="container">
           <div class="promise__head">
-            <span class="eyebrow">Por qué Stockly</span>
+            <span class="eyebrow">Por qué {{ storeName }}</span>
             <h2 class="block__title">Una tienda pensada al detalle</h2>
           </div>
           <div class="promise__grid">
@@ -208,9 +212,10 @@ onMounted(async () => {
 /* ---------------- Hero ---------------- */
 .hero {
   background:
-    radial-gradient(900px 500px at 88% -10%, rgba(14, 110, 78, 0.08), transparent 60%),
-    radial-gradient(700px 500px at 0% 110%, rgba(184, 146, 58, 0.08), transparent 55%),
-    var(--color-surface-alt);
+    radial-gradient(900px 500px at 88% -10%, rgba(var(--color-primary-rgb), 0.1), transparent 60%),
+    radial-gradient(700px 500px at 0% 110%, rgba(var(--color-accent-rgb), 0.1), transparent 55%),
+    var(--color-hero);
+  color: var(--color-hero-ink);
   border-bottom: 1px solid var(--color-line);
   overflow: hidden;
 }
@@ -228,13 +233,14 @@ onMounted(async () => {
   line-height: 1.06;
   letter-spacing: -0.02em;
   margin-bottom: 22px;
+  color: var(--color-hero-ink);
 }
 .hero__accent {
   color: var(--color-primary);
 }
 .hero__lead {
   font-size: 1.1rem;
-  color: var(--color-body);
+  color: var(--color-hero-text);
   max-width: 480px;
   margin-bottom: 30px;
 }
@@ -256,7 +262,7 @@ onMounted(async () => {
   gap: 8px;
   font-size: 0.9rem;
   font-weight: 500;
-  color: var(--color-body);
+  color: var(--color-hero-muted);
 }
 .hero__trust svg {
   color: var(--color-primary);
@@ -270,7 +276,7 @@ onMounted(async () => {
   aspect-ratio: 4 / 5;
   border-radius: var(--radius-xl);
   overflow: hidden;
-  background: linear-gradient(150deg, var(--color-primary) 0%, #0a4d38 100%);
+  background: linear-gradient(150deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
   box-shadow: var(--shadow-lg);
   display: grid;
   place-items: center;
@@ -554,8 +560,8 @@ onMounted(async () => {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(600px 300px at 90% 0%, rgba(14, 110, 78, 0.5), transparent 60%),
-    radial-gradient(500px 300px at 0% 100%, rgba(184, 146, 58, 0.25), transparent 55%);
+    radial-gradient(600px 300px at 90% 0%, rgba(var(--color-primary-rgb), 0.5), transparent 60%),
+    radial-gradient(500px 300px at 0% 100%, rgba(var(--color-accent-rgb), 0.25), transparent 55%);
 }
 .cta__content {
   position: relative;

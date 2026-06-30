@@ -19,6 +19,7 @@ urlpatterns = [
     path('api/v1/', include('sales.urls')),
     path('api/v1/', include('store.urls')),
     path('api/v1/', include('geo.urls')),
+    path('api/v1/', include('siteconfig.urls')),
     path('api/v1/', include('api.urls')),
     # Documentación OpenAPI / Swagger (pública)
     path('api/schema/', SpectacularAPIView.as_view(permission_classes=[AllowAny]), name='schema'),

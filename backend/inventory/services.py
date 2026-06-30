@@ -11,6 +11,7 @@ from rest_framework import status
 from rest_framework.exceptions import APIException
 
 from catalog.models import ProductVariant
+from geo.geocoding import coords_from_map_url, geocode
 
 from .models import (
     INBOUND_TYPES,
@@ -23,6 +24,28 @@ from .models import (
     TransferStatus,
     Warehouse,
 )
+
+
+def resolve_warehouse_coords(warehouse, *, force=False):
+    """Fija (y guarda) las coordenadas de la bodega para el ruteo por cercanía.
+
+    Las toma del enlace de Google Maps si lo hay; si no, geocodifica su ciudad/
+    dirección. Best-effort: si no se resuelven, quedan nulas. No reconsulta si ya
+    tiene coordenadas (salvo `force`), para no llamar a OpenStreetMap de más.
+    """
+    if not force and warehouse.latitude is not None and warehouse.longitude is not None:
+        return warehouse.latitude, warehouse.longitude
+    coords = coords_from_map_url(warehouse.map_embed_url)
+    if not coords and warehouse.city_id:
+        parts = [
+            warehouse.address, warehouse.city.name,
+            warehouse.city.department.name, warehouse.city.department.country.name,
+        ]
+        coords = geocode(', '.join(p for p in parts if p))
+    if coords and (warehouse.latitude, warehouse.longitude) != coords:
+        warehouse.latitude, warehouse.longitude = coords
+        warehouse.save(update_fields=['latitude', 'longitude', 'updated_at'])
+    return coords
 
 
 class InventoryError(APIException):

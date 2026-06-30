@@ -75,7 +75,7 @@ onMounted(load)
         <div class="order__main">
           <div class="order__head">
             <span class="order__number">
-              {{ o.kind === 'order' ? 'Pedido' : 'Compra' }} #{{ o.number }}
+              {{ o.kind === 'order' ? 'Pedido' : 'Compra' }} {{ o.code }}
             </span>
             <span class="chip" :class="o.kind === 'order' ? 'chip--online' : 'chip--store'">
               {{ o.kind === 'order' ? 'En línea' : 'En tienda' }}

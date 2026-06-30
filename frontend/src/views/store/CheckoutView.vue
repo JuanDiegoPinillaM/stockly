@@ -1,9 +1,11 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
-import { ArrowLeft, MapPin, Store, Truck, CreditCard, AlertTriangle, Check } from 'lucide-vue-next'
-import { storeApi, ordersApi, addressesApi } from '@/services/store'
+import { ArrowLeft, MapPin, Store, Truck, CreditCard, AlertTriangle, Check, Plus } from 'lucide-vue-next'
+import { ordersApi, addressesApi } from '@/services/store'
 import { useCartStore } from '@/stores/cart'
+import { toastError } from '@/utils/notify'
+import AddressForm from '@/components/AddressForm.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import ErrorState from '@/components/ErrorState.vue'
 
@@ -12,22 +14,43 @@ const cart = useCartStore()
 
 const loading = ref(true)
 const loadError = ref('')
-const points = ref([])
 const addresses = ref([])
 
+// Opciones de entrega del carrito (las decide el backend).
+const deliveryAvailable = ref(false)
+const pickupPoints = ref([]) // tiendas que tienen el pedido COMPLETO
+const pickupSplit = ref(null) // reparto entre varias tiendas (si ninguna sola)
+
 // Selección del comprador.
-const pointId = ref(null)
 const fulfillment = ref('envio') // 'envio' | 'recoge'
 const addressId = ref(null)
+const pickupPointId = ref(null) // tienda elegida para recoger (una sola)
+const usePickupSplit = ref(false) // recoger repartido en varias tiendas
 const payment = ref('tarjeta')
 const note = ref('')
 
-// Disponibilidad en el punto elegido.
-const availability = ref(null) // { [variantId]: bool }
-const checking = ref(false)
-
 const placing = ref(false)
 const placeError = ref('')
+
+// Crear dirección sin salir del checkout.
+const addingAddress = ref(false)
+const savingAddress = ref(false)
+
+async function saveAddress(payload) {
+  savingAddress.value = true
+  try {
+    const created = await addressesApi.create(payload)
+    const addrs = await addressesApi.list()
+    addresses.value = addrs.results || addrs
+    addressId.value = created.id // selecciona la recién creada
+    addingAddress.value = false
+  } catch (e) {
+    const err = e.response?.data
+    toastError(err?.errors?.city?.[0] || err?.detail || 'No se pudo guardar la dirección.')
+  } finally {
+    savingAddress.value = false
+  }
+}
 
 const PAYMENTS = [
   { value: 'tarjeta', label: 'Tarjeta' },
@@ -40,51 +63,30 @@ function money(v) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0)
 }
 
-const selectedPoint = computed(() => points.value.find((p) => p.id === pointId.value) || null)
-
-const unavailableItems = computed(() => {
-  if (!availability.value) return []
-  return cart.items.filter((i) => availability.value[i.variantId] === false)
-})
+const selectedPickup = computed(() => pickupPoints.value.find((p) => p.id === pickupPointId.value) || null)
 
 const canPlace = computed(() => {
-  if (cart.isEmpty || !pointId.value) return false
-  if (fulfillment.value === 'envio' && !addressId.value) return false
-  if (unavailableItems.value.length) return false
-  return true
+  if (cart.isEmpty) return false
+  if (fulfillment.value === 'envio') return deliveryAvailable.value && Boolean(addressId.value)
+  // Recoger: en una tienda elegida o repartido en varias.
+  return Boolean(pickupPointId.value) || usePickupSplit.value
 })
-
-async function checkAvailability() {
-  if (!pointId.value || cart.isEmpty) {
-    availability.value = null
-    return
-  }
-  checking.value = true
-  try {
-    const data = await ordersApi.checkAvailability({
-      warehouse: pointId.value,
-      items: cart.toItemsPayload()
-    })
-    const map = {}
-    data.results.forEach((r) => (map[r.variant] = r.available))
-    availability.value = map
-  } catch {
-    availability.value = null
-  } finally {
-    checking.value = false
-  }
-}
-
-watch(pointId, checkAvailability)
 
 async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const [pts, addrs] = await Promise.all([storeApi.points(), addressesApi.list()])
-    points.value = pts
+    const [opts, addrs] = await Promise.all([
+      ordersApi.fulfillmentOptions({ items: cart.toItemsPayload() }),
+      addressesApi.list()
+    ])
+    deliveryAvailable.value = opts.delivery_available
+    pickupPoints.value = opts.pickup_points || []
+    pickupSplit.value = opts.pickup_split || null
     addresses.value = addrs.results || addrs
-    if (points.value.length === 1) pointId.value = points.value[0].id
+    if (pickupPoints.value.length === 1) pickupPointId.value = pickupPoints.value[0].id
+    // Si no hay tienda única pero sí reparto, esa es la única vía para recoger.
+    if (!pickupPoints.value.length && pickupSplit.value) usePickupSplit.value = true
     const def = addresses.value.find((a) => a.is_default) || addresses.value[0]
     if (def) addressId.value = def.id
   } catch {
@@ -99,11 +101,15 @@ async function placeOrder() {
   placing.value = true
   placeError.value = ''
   try {
+    const isDelivery = fulfillment.value === 'envio'
+    const isSplit = !isDelivery && usePickupSplit.value
     const order = await ordersApi.create({
-      warehouse: pointId.value,
       fulfillment: fulfillment.value,
       payment_method: payment.value,
-      address: fulfillment.value === 'envio' ? addressId.value : null,
+      // Envío: el sistema decide. Recoger: una tienda elegida o reparto en varias.
+      warehouse: isDelivery || isSplit ? null : pickupPointId.value,
+      pickup_split: isSplit,
+      address: isDelivery ? addressId.value : null,
       items: cart.toItemsPayload(),
       note: note.value
     })
@@ -134,23 +140,7 @@ onMounted(load)
 
     <div v-else class="checkout__grid">
       <div class="form">
-        <!-- 1. Punto -->
-        <section class="card">
-          <h2 class="card__title"><Store :size="18" /> Punto</h2>
-          <p class="card__hint">Elige la tienda que prepara tu pedido.</p>
-          <div v-if="!points.length" class="warn">No hay puntos disponibles por ahora.</div>
-          <div v-else class="options">
-            <label v-for="p in points" :key="p.id" class="option" :class="{ 'option--active': pointId === p.id }">
-              <input v-model="pointId" type="radio" :value="p.id" />
-              <span class="option__body">
-                <span class="option__name">{{ p.name }}</span>
-                <span v-if="p.address" class="option__sub">{{ p.address }}</span>
-              </span>
-            </label>
-          </div>
-        </section>
-
-        <!-- 2. Entrega -->
+        <!-- 1. Entrega -->
         <section class="card">
           <h2 class="card__title"><Truck :size="18" /> Entrega</h2>
           <div class="seg">
@@ -158,31 +148,94 @@ onMounted(load)
               Envío a domicilio
             </button>
             <button class="seg__btn" :class="{ 'seg__btn--active': fulfillment === 'recoge' }" @click="fulfillment = 'recoge'">
-              Recoger en el punto
+              Recoger en tienda
             </button>
           </div>
 
+          <!-- Envío: el comprador no elige tienda; el sistema la decide -->
           <template v-if="fulfillment === 'envio'">
-            <div v-if="!addresses.length" class="warn">
-              No tienes direcciones guardadas.
-              <RouterLink :to="{ name: 'account-addresses' }" class="warn__link">Agregar una dirección</RouterLink>
+            <div v-if="!deliveryAvailable" class="warn warn--block">
+              <AlertTriangle :size="16" />
+              <span>No tenemos tu pedido completo en una sola tienda para enviarlo a domicilio. Prueba a recoger en tienda o ajusta las cantidades.</span>
             </div>
-            <div v-else class="options">
-              <label v-for="a in addresses" :key="a.id" class="option" :class="{ 'option--active': addressId === a.id }">
-                <input v-model="addressId" type="radio" :value="a.id" />
+            <template v-else>
+              <p class="card__hint">
+                Lo despachamos automáticamente desde la tienda más cercana a ti que tenga tu pedido.
+              </p>
+
+              <!-- Formulario inline de nueva dirección -->
+              <div v-if="addingAddress" class="addr-new">
+                <h3 class="addr-new__title">Nueva dirección</h3>
+                <AddressForm
+                  :saving="savingAddress"
+                  submit-label="Guardar dirección"
+                  @submit="saveAddress"
+                  @cancel="addingAddress = false"
+                />
+              </div>
+
+              <template v-else>
+                <div v-if="!addresses.length" class="empty-addr">
+                  <MapPin :size="22" />
+                  <p>No tienes direcciones guardadas.</p>
+                  <button class="btn btn--primary btn--sm" @click="addingAddress = true">
+                    <Plus :size="16" /> Agregar dirección
+                  </button>
+                </div>
+                <div v-else class="options">
+                  <label v-for="a in addresses" :key="a.id" class="option" :class="{ 'option--active': addressId === a.id }">
+                    <input v-model="addressId" type="radio" :value="a.id" />
+                    <span class="option__body">
+                      <span class="option__name"><MapPin :size="14" /> {{ a.recipient }}</span>
+                      <span class="option__sub">{{ a.line1 }}{{ a.city_name ? ', ' + a.city_name : '' }}{{ a.department_name ? ', ' + a.department_name : '' }}</span>
+                    </span>
+                  </label>
+                  <button class="add-addr" @click="addingAddress = true">
+                    <Plus :size="15" /> Agregar otra dirección
+                  </button>
+                </div>
+              </template>
+            </template>
+          </template>
+
+          <!-- Recoger -->
+          <template v-else>
+            <!-- Una sola tienda tiene todo: el comprador elige -->
+            <div v-if="pickupPoints.length" class="options">
+              <p class="card__hint">Elige la tienda donde vas a recoger:</p>
+              <label v-for="p in pickupPoints" :key="p.id" class="option" :class="{ 'option--active': pickupPointId === p.id }">
+                <input v-model="pickupPointId" type="radio" :value="p.id" />
                 <span class="option__body">
-                  <span class="option__name"><MapPin :size="14" /> {{ a.recipient }}</span>
-                  <span class="option__sub">{{ a.line1 }}{{ a.city_name ? ', ' + a.city_name : '' }}{{ a.department_name ? ', ' + a.department_name : '' }}</span>
+                  <span class="option__name"><Store :size="14" /> {{ p.name }}</span>
+                  <span v-if="p.address" class="option__sub">{{ p.address }}</span>
+                  <span v-if="p.hours" class="option__sub">{{ p.hours }}</span>
                 </span>
               </label>
             </div>
+            <!-- Ninguna sola, pero combinando varias sí: recoger repartido -->
+            <div v-else-if="pickupSplit" class="split">
+              <p class="card__hint">
+                Tu pedido se prepara en varias tiendas. Podrás recogerlo así:
+              </p>
+              <div v-for="g in pickupSplit" :key="g.point.id" class="split__store">
+                <div class="split__head"><Store :size="15" /> <strong>{{ g.point.name }}</strong></div>
+                <p v-if="g.point.address" class="split__addr">{{ g.point.address }}</p>
+                <ul class="split__items">
+                  <li v-for="it in g.items" :key="it.variant">
+                    {{ it.quantity }}× {{ it.name }} <small v-if="it.options">{{ it.options }}</small>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <!-- Ni repartido alcanza -->
+            <div v-else class="warn warn--block">
+              <AlertTriangle :size="16" />
+              <span>No hay unidades de tu pedido para recoger en tienda en este momento.</span>
+            </div>
           </template>
-          <p v-else class="card__hint">
-            Recoges en {{ selectedPoint?.name || 'el punto seleccionado' }}{{ selectedPoint?.address ? ' — ' + selectedPoint.address : '' }}.
-          </p>
         </section>
 
-        <!-- 3. Pago -->
+        <!-- 2. Pago -->
         <section class="card">
           <h2 class="card__title"><CreditCard :size="18" /> Pago</h2>
           <p class="card__hint">El cobro es simulado; no se registran datos de tarjeta.</p>
@@ -194,7 +247,7 @@ onMounted(load)
           </div>
         </section>
 
-        <!-- 4. Nota -->
+        <!-- 3. Nota -->
         <section class="card">
           <h2 class="card__title">Nota (opcional)</h2>
           <textarea v-model="note" class="textarea" rows="2" placeholder="Indicaciones para tu pedido…"></textarea>
@@ -205,7 +258,7 @@ onMounted(load)
       <aside class="summary">
         <h2 class="summary__title">Tu pedido</h2>
         <ul class="summary__items">
-          <li v-for="item in cart.items" :key="item.variantId" class="summary__item" :class="{ 'summary__item--out': availability && availability[item.variantId] === false }">
+          <li v-for="item in cart.items" :key="item.variantId" class="summary__item">
             <span class="summary__qty">{{ item.quantity }}×</span>
             <span class="summary__name">
               {{ item.name }}
@@ -215,11 +268,12 @@ onMounted(load)
           </li>
         </ul>
 
-        <div v-if="checking" class="summary__checking">Verificando disponibilidad…</div>
-        <div v-else-if="unavailableItems.length" class="warn warn--block">
-          <AlertTriangle :size="16" />
-          <span>Algunos productos no están disponibles en este punto. Quítalos del carrito o elige otro punto.</span>
-        </div>
+        <p v-if="fulfillment === 'recoge' && selectedPickup" class="summary__pickup">
+          Recoges en <strong>{{ selectedPickup.name }}</strong>.
+        </p>
+        <p v-else-if="fulfillment === 'recoge' && usePickupSplit && pickupSplit" class="summary__pickup">
+          Recoges en <strong>{{ pickupSplit.length }} tiendas</strong> (ver el detalle arriba).
+        </p>
 
         <div class="summary__total">
           <span>Total</span>
@@ -325,6 +379,83 @@ onMounted(load)
   font-size: 0.85rem;
   color: var(--color-muted);
 }
+.addr-new {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: var(--color-surface-alt, #faf7f0);
+}
+.addr-new__title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.empty-addr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px;
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-md);
+  color: var(--color-muted);
+  text-align: center;
+}
+.add-addr {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 2px;
+  padding: 11px;
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.add-addr:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.split {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.split__store {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+.split__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-ink);
+}
+.split__head svg {
+  color: var(--color-primary);
+}
+.split__addr {
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  margin: 2px 0 8px 22px;
+}
+.split__items {
+  margin: 0 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.88rem;
+  color: var(--color-body);
+}
+.split__items small {
+  color: var(--color-muted);
+}
 .seg {
   display: flex;
   gap: 8px;
@@ -418,6 +549,14 @@ onMounted(load)
 .summary__checking {
   font-size: 0.85rem;
   color: var(--color-muted);
+  margin-bottom: 12px;
+}
+.summary__pickup {
+  font-size: 0.85rem;
+  color: var(--color-body);
+  background: var(--color-primary-soft);
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
   margin-bottom: 12px;
 }
 .summary__total {

@@ -32,10 +32,11 @@ class CustomerSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'id_type', 'id_type_display', 'id_number',
             'first_name', 'last_name', 'full_name', 'email', 'phone', 'avatar',
-            'is_active', 'sales_count', 'date_joined',
+            'is_active', 'is_walk_in', 'sales_count', 'date_joined',
         ]
         read_only_fields = [
-            'id', 'id_type_display', 'full_name', 'avatar', 'sales_count', 'date_joined',
+            'id', 'id_type_display', 'full_name', 'avatar', 'is_walk_in',
+            'sales_count', 'date_joined',
         ]
         extra_kwargs = {
             'first_name': {'required': True, 'allow_blank': False},
@@ -89,17 +90,24 @@ class CustomerSerializer(serializers.ModelSerializer):
 
 
 def _purchase_rows(user):
-    """Historial unificado de compras de un usuario: pedidos en línea + ventas."""
+    """Historial unificado de compras de un usuario: pedidos en línea + ventas.
+
+    Las ventas generadas a partir de un pedido (canal online) se omiten aquí: ya
+    están representadas por su pedido, que muestra el código de su venta. Solo se
+    listan las ventas del POS (sin pedido asociado) para no duplicar.
+    """
     rows = []
     for o in user.orders.all():
         rows.append({
-            'kind': 'order', 'id': o.id, 'number': o.number, 'date': o.created_at,
+            'kind': 'order', 'id': o.id, 'number': o.number, 'code': o.code,
+            'date': o.created_at,
             'total': o.total, 'total_items': o.total_items,
             'status': o.status, 'status_display': o.get_status_display(),
         })
-    for s in user.purchases.all():
+    for s in user.purchases.filter(order__isnull=True):
         rows.append({
-            'kind': 'sale', 'id': s.id, 'number': s.number, 'date': s.created_at,
+            'kind': 'sale', 'id': s.id, 'number': s.number, 'code': s.code,
+            'date': s.created_at,
             'total': s.total, 'total_items': s.total_items,
             'status': s.status, 'status_display': s.get_status_display(),
         })
@@ -162,6 +170,9 @@ class SaleSerializer(serializers.ModelSerializer):
     customer_email = serializers.EmailField(source='customer.email', read_only=True, default=None)
     warehouse_name = serializers.CharField(source='warehouse.name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    channel_display = serializers.CharField(source='get_channel_display', read_only=True)
+    code = serializers.CharField(read_only=True)
+    order_code = serializers.CharField(source='order.code', read_only=True, default=None)
     created_by_name = serializers.CharField(
         source='created_by.first_name', read_only=True, default=None
     )
@@ -170,7 +181,9 @@ class SaleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = [
-            'id', 'number', 'status', 'status_display',
+            'id', 'number', 'code', 'channel', 'channel_display',
+            'order', 'order_code',
+            'status', 'status_display',
             'customer', 'customer_name', 'customer_document', 'customer_email',
             'warehouse', 'warehouse_name',
             'subtotal', 'tax_total', 'discount', 'total', 'paid', 'change',
@@ -199,8 +212,16 @@ class SaleCreateSerializer(serializers.Serializer):
     warehouse = serializers.PrimaryKeyRelatedField(
         queryset=Warehouse.objects.all(), required=False, allow_null=True
     )
+    # El cliente es obligatorio: ninguna venta queda sin asociar. Se elige uno
+    # existente o se crea al vuelo desde el POS (módulo Clientes).
     customer = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.filter(role=User.Role.BUYER), required=False, allow_null=True
+        queryset=User.objects.filter(role=User.Role.BUYER),
+        required=True,
+        allow_null=False,
+        error_messages={
+            'required': 'Selecciona o crea un cliente para la venta.',
+            'null': 'Selecciona o crea un cliente para la venta.',
+        },
     )
     discount = serializers.DecimalField(
         max_digits=14, decimal_places=2, required=False, default=0, min_value=0

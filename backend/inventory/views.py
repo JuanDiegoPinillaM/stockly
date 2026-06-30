@@ -30,9 +30,15 @@ from .serializers import (
     StockMovementSerializer,
     TransferCreateSerializer,
     TransferSerializer,
+    WarehouseDetailSerializer,
     WarehouseSerializer,
 )
-from .services import accept_transfer, cancel_transfer, reject_transfer
+from .services import (
+    accept_transfer,
+    cancel_transfer,
+    reject_transfer,
+    resolve_warehouse_coords,
+)
 
 TRUTHY = {'1', 'true', 'True', 'yes'}
 
@@ -57,6 +63,19 @@ class WarehouseViewSet(SoftDeleteModelViewSet):
     filterset_fields = ['is_active']
     search_fields = ['name', 'code']
     ordering_fields = ['name']
+
+    def get_serializer_class(self):
+        # El detalle incluye KPIs de inventario de la bodega.
+        if self.action == 'retrieve':
+            return WarehouseDetailSerializer
+        return WarehouseSerializer
+
+    def perform_create(self, serializer):
+        # Al crear/editar, recalcula coords desde el mapa o la dirección.
+        resolve_warehouse_coords(serializer.save(), force=True)
+
+    def perform_update(self, serializer):
+        resolve_warehouse_coords(serializer.save(), force=True)
 
 
 @extend_schema_view(

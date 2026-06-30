@@ -1,11 +1,13 @@
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from catalog.models import Category, Product, ProductVariant, Subcategory
 
 from .models import StockLevel, StockMovement, Warehouse
+from .schedule import summarize_schedule
 from .services import InsufficientStock, InventoryError, record_movement
 
 User = get_user_model()
@@ -60,6 +62,33 @@ class WarehouseTests(InventoryTestBase):
         resp = self.client.delete(f'/api/v1/warehouses/{self.wh.id}/')
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Warehouse.objects.get(pk=self.wh.id).is_active)
+
+    def test_detail_includes_inventory_stats(self):
+        self._auth(self.admin)
+        self._move(
+            variant=self.variant.id, warehouse=self.wh.id,
+            type='entrada', quantity=7, unit_cost='1000.00',
+        )
+        resp = self.client.get(f'/api/v1/warehouses/{self.wh.id}/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['stats']['total_units'], 7)
+        self.assertEqual(resp.data['stats']['variant_count'], 1)
+        self.assertEqual(resp.data['stats']['product_count'], 1)
+        # El detalle también resume el horario por día.
+        self.assertIn('schedule_display', resp.data)
+
+    def test_phone_must_have_ten_digits(self):
+        self._auth(self.admin)
+        bad = self.client.post(
+            '/api/v1/warehouses/', {'name': 'Tel corto', 'phone': '123'}, format='json'
+        )
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+        ok = self.client.post(
+            '/api/v1/warehouses/', {'name': 'Tel ok', 'phone': '3001234567'}, format='json'
+        )
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+        # Se normaliza al formato agrupado "300 123 4567".
+        self.assertEqual(ok.data['phone'], '300 123 4567')
 
 
 class MovementTests(InventoryTestBase):
@@ -310,3 +339,25 @@ class TransferTests(InventoryTestBase):
         resp = self._move(variant=self.variant.id, warehouse=self.origin.id,
                           warehouse_to=self.dest.id, type='transferencia', quantity=1)
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ScheduleSummaryTests(SimpleTestCase):
+    """Resumen del horario: agrupa días consecutivos con el mismo horario."""
+
+    def test_groups_weekdays_and_weekend_with_holidays(self):
+        sched = {d: {'open': '07:00', 'close': '21:00'} for d in ['mon', 'tue', 'wed', 'thu', 'fri']}
+        sched['sat'] = sched['sun'] = sched['holidays'] = {'open': '07:00', 'close': '20:00'}
+        out = summarize_schedule(sched)
+        self.assertEqual(out[0]['days'], 'Lunes a viernes')
+        self.assertEqual(out[0]['hours'], '7:00 a.m. – 9:00 p.m.')
+        self.assertEqual(out[1]['days'], 'Fines de semana y festivos')
+
+    def test_closed_day_shown_as_closed(self):
+        sched = {d: {'open': '08:00', 'close': '18:00'} for d in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat']}
+        sched['sun'] = {'closed': True}
+        out = summarize_schedule(sched)
+        self.assertEqual(out[-1]['days'], 'Domingo')
+        self.assertEqual(out[-1]['hours'], 'Cerrado')
+
+    def test_empty_schedule(self):
+        self.assertEqual(summarize_schedule({}), [])

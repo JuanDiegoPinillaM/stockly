@@ -9,6 +9,8 @@ const props = defineProps({
   labelKey: { type: String, default: 'name' },
   // Si se indica, muestra un cuadrito de color usando ese campo (p. ej. 'hex_code').
   swatchKey: { type: String, default: '' },
+  // Si se indica, muestra el icono (componente) de ese campo en cada opción.
+  iconKey: { type: String, default: '' },
   placeholder: { type: String, default: 'Selecciona…' },
   clearable: { type: Boolean, default: false },
   clearLabel: { type: String, default: 'Sin selección' },
@@ -67,6 +69,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
           class="ss__dot"
           :style="{ background: selected[swatchKey] }"
         ></span>
+        <component :is="selected[iconKey]" v-if="iconKey && selected[iconKey]" :size="17" class="ss__icon" />
         {{ selected[labelKey] }}
       </span>
       <span v-else class="ss__placeholder">{{ placeholder }}</span>
@@ -111,6 +114,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
               class="ss__dot"
               :style="{ background: o[swatchKey] }"
             ></span>
+            <component :is="o[iconKey]" v-if="iconKey && o[iconKey]" :size="17" class="ss__icon" />
             <span class="ss__option-name">{{ o[labelKey] }}</span>
             <span v-if="swatchKey" class="ss__hex">{{ o[swatchKey] }}</span>
             <Check v-if="isSelected(o)" :size="15" class="ss__check" />
@@ -181,6 +185,10 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   height: 16px;
   border-radius: 4px;
   border: 1px solid var(--color-line);
+  flex-shrink: 0;
+}
+.ss__icon {
+  color: var(--color-primary);
   flex-shrink: 0;
 }
 .ss__dot--none {

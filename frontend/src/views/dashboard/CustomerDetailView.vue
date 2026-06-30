@@ -125,7 +125,7 @@ onMounted(load)
             </thead>
             <tbody>
               <tr v-for="p in customer.purchases" :key="p.kind + '-' + p.id" class="row--clickable" @click="openPurchase(p)">
-                <td class="strong">#{{ p.number }}</td>
+                <td class="strong">{{ p.code }}</td>
                 <td>
                   <span class="chip" :class="p.kind === 'order' ? 'chip--online' : 'chip--store'">
                     {{ p.kind === 'order' ? 'En línea' : 'En tienda' }}

@@ -26,6 +26,9 @@ import AppFooter from '@/components/AppFooter.vue'
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  /* Fondo general del ecommerce. Personalizable: si el admin define un color de
+     página se usa; si no, el blanco de superficie por defecto. */
+  background: var(--color-page, var(--color-surface));
 }
 .site__main {
   flex: 1 0 auto;
